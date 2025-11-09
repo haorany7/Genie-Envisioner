@@ -391,7 +391,40 @@ class CustomLeRobotDataset(Dataset):
 
 
     def get_action_bias_std(self, domain_name):
-        return torch.tensor(self.StatisticInfo[domain_name+"_"+self.action_space]['mean']).unsqueeze(0), torch.tensor(self.StatisticInfo[domain_name+"_"+self.action_space]['std']).unsqueeze(0)+1e-6
+        stats = self.StatisticInfo[domain_name+"_"+self.action_space]
+        return (
+            torch.tensor(stats['mean']).unsqueeze(0),
+            torch.tensor(stats['std']).unsqueeze(0) + 1e-6,
+        )
+
+    def get_action_min_max(self, domain_name):
+        """
+        Fetch min / max statistics for absolute action normalization.
+        """
+        key = f"{domain_name}_{self.action_space}"
+        if key in self.StatisticInfo and "min" in self.StatisticInfo[key]:
+            stats = self.StatisticInfo[key]
+            return (
+                torch.tensor(stats['min']).unsqueeze(0),
+                torch.tensor(stats['max']).unsqueeze(0),
+            )
+
+        # Allow fallback to lowercase domain alias (e.g., Agibot_lerobot -> agibotworld).
+        for candidate in (
+            key,
+            key.lower(),
+            f"agibotworld_{self.action_space}" if "Agibot_lerobot" in key else None,
+        ):
+            if candidate and candidate in self.StatisticInfo and "min" in self.StatisticInfo[candidate]:
+                stats = self.StatisticInfo[candidate]
+                return (
+                    torch.tensor(stats['min']).unsqueeze(0),
+                    torch.tensor(stats['max']).unsqueeze(0),
+                )
+
+        raise KeyError(
+            f"Min/Max statistics not found for domain '{domain_name}' with action_space '{self.action_space}'."
+        )
 
 
     def seek_mp4(self, video_path, cam_name_list, slices):
@@ -567,7 +600,8 @@ class CustomLeRobotDataset(Dataset):
             action = action[indexes].astype(np.float32)
             action = torch.FloatTensor(action)
             action = pad_to_16(action)
-            action = (action - action_mean) / action_std
+            action_min, action_max = self.get_action_min_max(domain_name)
+            action = 2 * (action - action_min) / (action_max - action_min + 1e-6) - 1
 
         elif self.action_type == "delta":
             ### delta_act = norm(act_{t} - act_{t-1})

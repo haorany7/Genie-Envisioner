@@ -14,21 +14,25 @@ PROJ_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 MAIN_PY="${PROJ_ROOT}/main.py"
 BASE_CONFIG="${PROJ_ROOT}/configs/ltx_model/policy_model_lerobot.yaml"
 
+DEFAULT_WORK_ROOT="/work/hdd/bche/haorany7/WORLD-MODEL-TOUCH"
+WORK_ROOT="${WM_WORK_ROOT:-${DEFAULT_WORK_ROOT}}"
+
 # Paths (customize if needed)
-DATA_ROOT="/projects/behe/haorany7/WORLD-MODEL-TOUCH/Agibot_lerobot"
-DOMAIN="Agibot_lerobot"
-CACHE_DIR="/projects/behe/haorany7/WORLD-MODEL-TOUCH/cache/ge_eval_cache"
-CACHE_TRAIN="${CACHE_DIR}/Agibot_lerobot_policy_train.json"
-CACHE_VAL="${CACHE_DIR}/Agibot_lerobot_policy_val.json"
+DATA_ROOT="/work/hdd/behe/AgiBotWorld-Alpha_lerobot"
+DOMAIN="agibotworld"
+CACHE_DIR_TRAIN="/projects/behe/haorany7/WORLD-MODEL-TOUCH/cache/ge_eval_cache_train"
+CACHE_DIR_VAL="/projects/behe/haorany7/WORLD-MODEL-TOUCH/cache/ge_eval_cache_val"
+CACHE_TRAIN="${CACHE_DIR_TRAIN}/agibotworld_train.json"
+CACHE_VAL="${CACHE_DIR_VAL}/agibotworld_val.json"
 PRETRAIN_VAE_TOK="/projects/behe/haorany7/WORLD-MODEL-TOUCH/pretrained_models/ltx_video"
 MODEL_CKPT="/projects/behe/haorany7/WORLD-MODEL-TOUCH/pretrained_models/genie_envisioner/GE_base_fast_v0.1.safetensors"
 
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
-OUTPUT_DIR="${OUTPUT_DIR:-/projects/behe/haorany7/WORLD-MODEL-TOUCH/outputs/agibot_policy/${TIMESTAMP}}"
+OUTPUT_DIR="${OUTPUT_DIR:-${WORK_ROOT}/outputs/agibot_policy/${TIMESTAMP}}"
 RUN_CFG_DIR="${OUTPUT_DIR}/used_configs"
 GEN_CONFIG="${RUN_CFG_DIR}/policy_model_lerobot.generated.yaml"
 
-mkdir -p "${OUTPUT_DIR}" "${RUN_CFG_DIR}" "${CACHE_DIR}"
+mkdir -p "${OUTPUT_DIR}" "${RUN_CFG_DIR}" "${CACHE_DIR_TRAIN}" "${CACHE_DIR_VAL}"
 
 echo "Preparing run-specific config at: ${GEN_CONFIG}"
 
