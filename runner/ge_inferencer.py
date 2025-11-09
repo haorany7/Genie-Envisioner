@@ -95,7 +95,7 @@ class Inferencer:
 
 
         self.StatisticInfo = StatisticInfo
-        if get(self.args.data['val'], 'stat_file', None) is not None:
+        if self.args.data['val'].get('stat_file', None) is not None:
             with open(self.args.data['val']['stat_file'], "r") as f:
                 self.StatisticInfo = json.load(f)
 
@@ -112,8 +112,29 @@ class Inferencer:
         self.args.data['val'].update({"fix_epiidx": 0, "fix_sidx":0, "fix_mem_idx":[0,0,0,0]})
 
         self.val_dataset = val_dataset_class(**self.args.data['val'])
+        
+        # Custom collate_fn to handle string captions correctly
+        def collate_fn(batch):
+            """Custom collate function that preserves string captions"""
+            # Get keys from first sample
+            keys = batch[0].keys()
+            collated = {}
+            for key in keys:
+                values = [item[key] for item in batch]
+                # For caption, keep as list of strings
+                if key == 'caption':
+                    collated[key] = [str(v) if not isinstance(v, str) else v for v in values]
+                # For other fields, use default collate behavior
+                else:
+                    try:
+                        collated[key] = torch.utils.data.default_collate(values)
+                    except (TypeError, RuntimeError):
+                        # If default collate fails, keep as list
+                        collated[key] = values
+            return collated
+        
         self.val_dataloader = torch.utils.data.DataLoader(
-            self.val_dataset, batch_size=1, shuffle=False,
+            self.val_dataset, batch_size=1, shuffle=False, collate_fn=collate_fn
         )
 
 
@@ -193,7 +214,16 @@ class Inferencer:
         )
 
     def validate(
-        self, model_save_dir, global_step, n_view=1, n_chunk_video=1, n_chunk_action=10, n_validation=1, domain_name="agibotworld",
+        self,
+        model_save_dir,
+        global_step,
+        n_view=1,
+        n_chunk_video=1,
+        n_chunk_action=10,
+        n_validation=1,
+        domain_name="agibotworld",
+        tasks_per_run=None,
+        episodes_per_task=1,
     ):
 
         os.makedirs(model_save_dir,exist_ok=True)
@@ -215,9 +245,51 @@ class Inferencer:
             n_chunk_action = 1
 
 
-        for i_validation in range(n_validation):
-            
-            self.val_dataloader.dataset.fix_epiidx = i_validation
+        dataset = self.val_dataloader.dataset
+        task_spans = getattr(dataset, "task_spans", [])
+        total_tasks_available = len(task_spans)
+
+        episodes_per_task = max(1, int(episodes_per_task))
+        if total_tasks_available == 0:
+            tasks_per_run_effective = 1
+        else:
+            if tasks_per_run is None or tasks_per_run <= 0:
+                tasks_per_run_effective = math.ceil(n_validation / episodes_per_task)
+            else:
+                tasks_per_run_effective = tasks_per_run
+            tasks_per_run_effective = max(1, min(tasks_per_run_effective, total_tasks_available))
+
+        max_iterations = (
+            min(n_validation, tasks_per_run_effective * episodes_per_task)
+            if total_tasks_available
+            else n_validation
+        )
+
+        print(
+            f"[DEBUG validate] total_tasks_available={total_tasks_available}, "
+            f"tasks_per_run={tasks_per_run_effective}, "
+            f"episodes_per_task={episodes_per_task}, "
+            f"max_iterations={max_iterations}"
+        )
+
+        for i_validation in range(max_iterations):
+            if total_tasks_available:
+                task_idx = i_validation // episodes_per_task
+                episode_offset = i_validation % episodes_per_task
+                span = task_spans[task_idx]
+                span_end = span["start"] + span["length"] - 1
+                target_idx = min(span["start"] + episode_offset, span_end)
+                dataset.fix_epiidx = target_idx
+                current_task = span["task"]
+            else:
+                dataset.fix_epiidx = i_validation
+                current_task = None
+            task_name = current_task
+
+            print(
+                f"[DEBUG] Processing episode {i_validation}/{max_iterations-1}"
+                + (f" (task={current_task})" if current_task else "")
+            )
 
             if self.args.return_action:
                 self.val_dataloader.dataset.fix_sidx = 100
@@ -237,6 +309,16 @@ class Inferencer:
                 batch = next(iter(self.val_dataloader))
                 image = batch['video'][:,:,:,:self.args.data['train']['n_previous']]  # shape b,c,v,t,h,w 
                 prompt = batch['caption']
+                
+                # Debug: print prompt type and value
+                print(f"[DEBUG] Prompt type: {type(prompt)}, value: {prompt}")
+                # Ensure prompt is a list of strings
+                if isinstance(prompt, (list, tuple)):
+                    prompt = [str(p) if not isinstance(p, str) else p for p in prompt]
+                else:
+                    prompt = [str(prompt)]
+                print(f"[DEBUG] Prompt after sanitization: {prompt}")
+                
                 gt_video = batch['video']
 
                 b, c, v, t, h, w = image.shape
@@ -278,14 +360,22 @@ class Inferencer:
                 )[0]
 
                 save_cap = f'Validation_{i_validation}'
+                if task_name:
+                    safe_task = "".join(c if c.isalnum() or c in ("_", "-") else "_" for c in task_name)
+                    save_cap = f'{save_cap}_{safe_task}'
+                task_name = prompt[0] if isinstance(prompt, list) and len(prompt) > 0 else f"episode_{i_validation}"
+                print(f"[DEBUG] Saving results for episode {i_validation}, task: {task_name}")
 
                 if self.args.return_video:
                     
                     video = preds['video'].data.cpu()
+                    gt_path = os.path.join(model_save_dir, f'{save_cap}_gt.mp4')
+                    pred_path = os.path.join(model_save_dir, f'{save_cap}.mp4')
 
-                    save_video(rearrange(gt_video[0].data.cpu(), 'c v t h w -> c t h (v w)', v=n_view), os.path.join(model_save_dir, f'{save_cap}_gt.mp4'), fps=(self.args.data['train']['chunk']-1)//self.TEMPORAL_DOWN_RATIO+1)
+                    save_video(rearrange(gt_video[0].data.cpu(), 'c v t h w -> c t h (v w)', v=n_view), gt_path, fps=(self.args.data['train']['chunk']-1)//self.TEMPORAL_DOWN_RATIO+1)
+                    save_video(rearrange(video, '(b v) c t h w -> b c t h (v w)', v=n_view)[0], pred_path, fps=(self.args.data['train']['chunk']-1)//self.TEMPORAL_DOWN_RATIO+1)
 
-                    save_video(rearrange(video, '(b v) c t h w -> b c t h (v w)', v=n_view)[0], os.path.join(model_save_dir, f'{save_cap}.mp4'), fps=(self.args.data['train']['chunk']-1)//self.TEMPORAL_DOWN_RATIO+1)
+                    print(f"[DEBUG] Saved video: {pred_path}")
 
 
                 if self.args.return_action:
@@ -390,8 +480,26 @@ class Inferencer:
                 plt.savefig(f'{self.save_folder}/openloop_evaluation_val{i_validation}.png', dpi=300, bbox_inches='tight')
                 plt.clf()
 
+            print(f"[DEBUG] Completed processing episode {i_validation}/{max_iterations-1}")
+        
+        print(f"[DEBUG] Finished processing all {max_iterations} episodes. Results saved to: {model_save_dir}")
 
-    def infer(self, n_chunk_action=10, n_chunk_video=1, n_validation=10, global_step=0, domain_name="agibotworld"):
+    def infer(
+        self,
+        n_chunk_action=10,
+        n_chunk_video=1,
+        n_validation=10,
+        global_step=0,
+        domain_name="agibotworld",
+        tasks_per_run=None,
+        episodes_per_task=1,
+    ):
+        print(
+            f"[DEBUG infer] Received parameters: n_chunk_action={n_chunk_action}, "
+            f"n_chunk_video={n_chunk_video}, n_validation={n_validation}, "
+            f"domain_name={domain_name}, tasks_per_run={tasks_per_run}, "
+            f"episodes_per_task={episodes_per_task}"
+        )
         model_save_dir = os.path.join(self.save_folder,f'Inference')
         self.validate(
             model_save_dir, global_step,
@@ -400,4 +508,6 @@ class Inferencer:
             n_chunk_action=n_chunk_action,
             n_validation=n_validation,
             domain_name=domain_name,
+            tasks_per_run=tasks_per_run,
+            episodes_per_task=episodes_per_task,
         )

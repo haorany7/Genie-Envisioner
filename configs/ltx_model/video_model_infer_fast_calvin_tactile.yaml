@@ -1,10 +1,10 @@
-model_name: 'ltx_policy_agibot_joint_abs_minmax'
+model_name: 'ltx_train'
 is_i2v: True
-report_to: wandb
-tracker_name: ltx_policy_agibot_joint_abs_minmax
+report_to: None
+tracker_name: ltx_trainer
 
-logging_dir: logs/agibot_joint_abs_minmax_policy
-output_dir: /projects/behe/haorany7/WORLD-MODEL-TOUCH/outputs/agibot_joint_abs_minmax_policy
+logging_dir: logs
+output_dir: PATH_TO_SAVE_LOGS_AND_CHECKPOINTS
 pretrained_model_name_or_path: /projects/behe/haorany7/WORLD-MODEL-TOUCH/pretrained_models/ltx_video
 
 ###
@@ -29,9 +29,9 @@ pipeline_class_path: models/pipeline/custom_pipeline.py
 pipeline_class: CustomPipeline
 
 # 
-return_action: true
-return_video: false
-train_mode: 'action_full'
+return_action: false
+return_video: true
+train_mode: 'video_only'
 action_loss_scale: 1.0
 
 # total training step is decided by the minimum of the below two
@@ -52,7 +52,7 @@ seed: 42
 enable_slicing: True
 enable_tiling: True
 
-add_state: False ### whether add state to the action chunk
+add_state: False
 
 caption_dropout_p: 0.06
 
@@ -112,7 +112,7 @@ diffusion_model:
     patch_size: 1
     patch_size_t: 1
     qk_norm: rms_norm_across_heads
-    action_expert: true
+    action_expert: false
     action_in_channels: 16
     action_num_attention_heads: 16
     action_attention_head_dim: 32
@@ -120,38 +120,38 @@ diffusion_model:
 data:
 ### more details can be found in data/utils/*_dataset.py
   train:
-    data_roots: ["/work/hdd/behe/AgiBotWorld-Alpha_lerobot"]
-    domains: ["agibotworld"]
+    data_roots: ["/work/hdd/behe/calvin"]
+    domains: [D_lerobot_joint_action]
     sample_size: [192, 256]
-    sample_n_frames: 900
+    sample_n_frames: 65  #spefic to calvin, in other agibot-world, it is 900
     preprocess :  'resize'
-    valid_cam :  ['observation.images.head', 'observation.images.hand_left', 'observation.images.hand_right']
+    valid_cam :  ['observation.images.camera1', 'observation.images.camera2', 'observation.images.gelsight1']
     chunk: 9
     action_chunk: 54
     n_previous: 4
     previous_pick_mode: 'random'
     random_crop: False
-    dataset_info_cache_path: "/projects/behe/haorany7/WORLD-MODEL-TOUCH/cache/ge_eval_cache_train/agibotworld_train.json"
+    dataset_info_cache_path: "/projects/behe/haorany7/WORLD-MODEL-TOUCH/cache/calvin_infer_tactile_cache/ABC_joint_action_train.json"
     action_type: "absolute"
     action_space: "joint"
   val:
-    data_roots: ["/work/hdd/behe/AgiBotWorld-Alpha_lerobot"]
-    domains: ["agibotworld"]
+    data_roots: ["/work/hdd/behe/calvin"]
+    domains: [D_lerobot_joint_action]
     sample_size: [192, 256]
-    sample_n_frames: 900
+    sample_n_frames: 65  #spefic to calvin, in other agibot-world, it is 900
     preprocess :  'resize'
-    valid_cam :  ['observation.images.head', 'observation.images.hand_left', 'observation.images.hand_right']
+    valid_cam :  ['observation.images.camera1', 'observation.images.camera2', 'observation.images.gelsight1']
     chunk: 9
     action_chunk: 54
     n_previous: 4
     previous_pick_mode: 'random'
     random_crop: False
-    dataset_info_cache_path: "/projects/behe/haorany7/WORLD-MODEL-TOUCH/cache/ge_eval_cache_val/agibotworld_val.json"
+    dataset_info_cache_path: "/projects/behe/haorany7/WORLD-MODEL-TOUCH/cache/calvin_infer_tactile_cache/ABC_joint_action_val.json"
     action_type: "absolute"
     action_space: "joint"
 
 use_color_jitter: true
-num_inference_step: 5
+num_inference_step: 50
 noisy_video: true
 
 # false for quick debug, for training set True

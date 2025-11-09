@@ -132,12 +132,22 @@ class AgiBotWorld(Dataset):
                                 task_infos.update({str(info["episode_id"]): (info["label_info"], info["task_name"])})
                         episode_list = list(task_infos.keys())
                         episode_list.sort()
-                        episode_list = [os.path.join(_data_root, "observations", task, str(_)) for _ in episode_list]
-                        n_episode = len(episode_list)
-                        zero_rank_print(f"{n_episode} episodes in task-{task}")
 
-                        for episode in episode_list:
-                            episode_id = os.path.basename(episode)
+                        # Only keep episodes that exist in observations, parameters and proprio_stats
+                        filtered = []
+                        for epi in episode_list:
+                            obs_dir = os.path.join(_data_root, "observations", task, str(epi))
+                            par_dir = os.path.join(_data_root, "parameters", task, str(epi))
+                            pro_dir = os.path.join(_data_root, "proprio_stats", task, str(epi))
+                            if os.path.exists(os.path.join(obs_dir, "videos")) \
+                               and os.path.exists(os.path.join(par_dir, "camera")) \
+                               and os.path.exists(os.path.join(pro_dir, "proprio_stats.h5")):
+                                filtered.append(str(epi))
+
+                        zero_rank_print(f"{len(filtered)} valid episodes in task-{task}")
+
+                        for episode_id in filtered:
+                            episode = os.path.join(_data_root, "observations", task, episode_id)
                             info = [
                                 episode,
                                 os.path.join(_data_root, "parameters", task, episode_id),
@@ -220,7 +230,8 @@ class AgiBotWorld(Dataset):
                 self.StatisticInfo = json.load(f)
 
     def get_total_timesteps(self, data_root, cam_name):
-        with open(os.path.join(data_root, "parameters", "camera", cam_name+"_extrinsic_params_aligned.json"), "r") as f:
+        # data_root already points to: <root>/parameters/<task>/<episode>
+        with open(os.path.join(data_root, "camera", cam_name+"_extrinsic_params_aligned.json"), "r") as f:
             info = json.load(f)
         total_frames = len(info)
         return total_frames
@@ -329,7 +340,8 @@ class AgiBotWorld(Dataset):
         intrinsic_list = []
         c2ws_list = []
         for cam_name in cam_name_list:
-            with open(os.path.join(data_root, "parameters", "camera", cam_name+"_intrinsic_params.json"), "r") as f:
+            # data_root already points to: <root>/parameters/<task>/<episode>
+            with open(os.path.join(data_root, "camera", cam_name+"_intrinsic_params.json"), "r") as f:
                 info = json.load(f)["intrinsic"]
             intrinsic = torch.eye(3, dtype=torch.float)
             intrinsic[0,0] = info["fx"]
@@ -338,7 +350,7 @@ class AgiBotWorld(Dataset):
             intrinsic[1,2] = info["ppy"]
             intrinsic_list.append(intrinsic)
 
-            with open(os.path.join(data_root, "parameters", "camera", cam_name+"_extrinsic_params_aligned.json"), "r") as f:
+            with open(os.path.join(data_root, "camera", cam_name+"_extrinsic_params_aligned.json"), "r") as f:
                 info = json.load(f)
             c2ws = []
             for _i in slices:

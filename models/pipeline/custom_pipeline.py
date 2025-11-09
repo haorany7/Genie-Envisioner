@@ -239,7 +239,26 @@ class CustomPipeline(DiffusionPipeline, FromSingleFileMixin):
         device = device or self._execution_device
         dtype = dtype or self.text_encoder.dtype
 
-        prompt = [prompt] if isinstance(prompt, str) else prompt
+        # Handle and sanitize prompt into List[str]
+        print(f"[DEBUG _get_t5_prompt_embeds] Input prompt type: {type(prompt)}, value: {prompt}")
+        if prompt is None:
+            prompt = [""]
+        elif isinstance(prompt, str):
+            prompt = [prompt]
+        elif isinstance(prompt, list):
+            # Replace None and non-string items with their string representation
+            print(f"[DEBUG _get_t5_prompt_embeds] Prompt list items types: {[type(p) for p in prompt]}")
+            prompt = [("" if p is None else (p if isinstance(p, str) else str(p))) for p in prompt]
+            print(f"[DEBUG _get_t5_prompt_embeds] Prompt after sanitization: {prompt}")
+        else:
+            # Any other type (e.g., tensor, number) -> wrap as single string
+            print(f"[DEBUG _get_t5_prompt_embeds] Converting non-list prompt to string")
+            try:
+                prompt = [str(prompt)]
+            except Exception:
+                prompt = [""]
+        print(f"[DEBUG _get_t5_prompt_embeds] Final prompt: {prompt}")
+        
         batch_size = len(prompt)
         text_inputs = self.tokenizer(
             prompt,
@@ -318,11 +337,24 @@ class CustomPipeline(DiffusionPipeline, FromSingleFileMixin):
                 torch dtype
         """
         device = device or self._execution_device
-        prompt = [prompt] if isinstance(prompt, str) else prompt
+        
+        # Handle and sanitize prompt into List[str]
+        if prompt is None:
+            prompt = [""]
+        elif isinstance(prompt, str):
+            prompt = [prompt]
+        elif isinstance(prompt, list):
+            prompt = [("" if p is None else (p if isinstance(p, str) else str(p))) for p in prompt]
+        else:
+            try:
+                prompt = [str(prompt)]
+            except Exception:
+                prompt = [""]
+        
         if prompt is not None:
             batch_size = len(prompt)
         else:
-            batch_size = prompt_embeds.shape[0]
+            batch_size = prompt_embeds.shape[0] if prompt_embeds is not None else 1
 
         if prompt_embeds is None:
             prompt_embeds, prompt_attention_mask = self._get_t5_prompt_embeds(
@@ -698,16 +730,8 @@ class CustomPipeline(DiffusionPipeline, FromSingleFileMixin):
 
         device = self._execution_device
 
-        # 2. Define call parameters
-        if prompt is not None and isinstance(prompt, str):
-            batch_size = 1
-        elif prompt is not None and isinstance(prompt, list):
-            batch_size = len(prompt)
-        else:
-            batch_size = prompt_embeds.shape[0]
-
         preds = {}
-        # 3. Prepare text embeddings
+        # 2. Prepare text embeddings first (before determining batch_size)
         if prompt_embeds is None:
             (
                 prompt_embeds,
@@ -735,6 +759,18 @@ class CustomPipeline(DiffusionPipeline, FromSingleFileMixin):
         if self.do_classifier_free_guidance:
             prompt_embeds = torch.cat([negative_prompt_embeds, prompt_embeds], dim=0)  # b,l,c ?
             prompt_attention_mask = torch.cat([negative_prompt_attention_mask, prompt_attention_mask], dim=0)
+
+        # 3. Define batch_size after prompt_embeds is ready
+        if prompt_embeds is not None:
+            batch_size = prompt_embeds.shape[0]
+            if self.do_classifier_free_guidance:
+                batch_size = batch_size // 2  # CFG doubles the batch size
+        elif prompt is not None and isinstance(prompt, str):
+            batch_size = 1
+        elif prompt is not None and isinstance(prompt, list):
+            batch_size = len(prompt)
+        else:
+            batch_size = 1  # fallback
 
         if len(image.shape) == 4:  # in this case, a single image act as input
             image = image.unsqueeze(2)

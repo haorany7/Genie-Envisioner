@@ -18,8 +18,18 @@ def main():
     parser.add_argument('--n_chunk_action', type=int, default=1, help='num of action chunks to predict, used in action inference stage only')
     parser.add_argument('--output_path', type=str, default=None, help='Path to save outputs, used in inference stage only')
     parser.add_argument('--domain_name', type=str, default="agibotworld", help='Domain name of the validation dataset, used in inference stage only')
+    parser.add_argument('--tasks_per_run', type=int, default=None, help='Number of distinct tasks to evaluate during inference')
+    parser.add_argument('--episodes_per_task', type=int, default=None, help='Number of episodes to sample per task during inference')
 
     args = parser.parse_args()
+    
+    if args.mode == "infer":
+        print(
+            f"[DEBUG main] Inference parameters: n_validation={args.n_validation}, "
+            f"n_chunk_action={args.n_chunk_action}, domain_name={args.domain_name}, "
+            f"tasks_per_run={args.tasks_per_run}, episodes_per_task={args.episodes_per_task}"
+        )
+    
     Runner = import_custom_class(
         args.runner_class, args.runner_class_path, 
     )
@@ -39,6 +49,15 @@ def main():
     elif args.mode == "infer":
         ### Inference
         runner = Runner(args.config_file, output_dir=args.output_path)
+
+        episodes_per_task = args.episodes_per_task if args.episodes_per_task and args.episodes_per_task > 0 else 1
+        tasks_per_run = args.tasks_per_run if args.tasks_per_run and args.tasks_per_run > 0 else None
+        if tasks_per_run is not None:
+            args.n_validation = episodes_per_task * tasks_per_run
+        setattr(runner.args, "episodes_per_task", episodes_per_task)
+        if tasks_per_run is not None:
+            setattr(runner.args, "tasks_per_run", tasks_per_run)
+
         if args.checkpoint_path is not None:
             runner.args.load_weights = True
             runner.args.load_diffusion_model_weights = True
@@ -48,7 +67,9 @@ def main():
         runner.infer(
             n_chunk_action=args.n_chunk_action,
             n_validation=args.n_validation,
-            domain_name=args.domain_name
+            domain_name=args.domain_name,
+            tasks_per_run=tasks_per_run,
+            episodes_per_task=episodes_per_task,
         )
 
     else:

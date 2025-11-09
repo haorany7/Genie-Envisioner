@@ -36,9 +36,10 @@ def load_jsonl(jsonl_path):
     load jsonl file
     """
     data = []
-    with open(jsonl_path, 'r', encoding='UTF-8') as f:
-        for line in f:
-            data.append(json.loads(line))
+    if os.path.exists(jsonl_path):
+        with open(jsonl_path, 'r', encoding='UTF-8') as f:
+            for line in f:
+                data.append(json.loads(line))
     return data
 
 
@@ -108,6 +109,109 @@ class CustomLeRobotDataset(Dataset):
         
         zero_rank_print(f"loading annotations...")
 
+        def append_dataset_from_meta(root_prefix, domain_dir, domain_key):
+            meta_folder = os.path.join(root_prefix, domain_dir, "meta")
+            data_folder = os.path.join(root_prefix, domain_dir, "data")
+            video_folder = os.path.join(root_prefix, domain_dir, "videos")
+            if not os.path.exists(data_folder):
+                zero_rank_print(f"data folder not found: {data_folder}")
+                return
+
+            tasks_jsonl = os.path.join(meta_folder, "tasks.jsonl")
+            task_entries = load_jsonl(tasks_jsonl)
+            default_task_name = domain_dir
+            if not task_entries:
+                task_entries = [{"task_index": 0, "task": default_task_name}]
+            task_index_task_str_dict = {}
+            for item in task_entries:
+                task_idx = item.get("task_index", len(task_index_task_str_dict))
+                task_name = item.get("task") or item.get("task_name") or item.get("task_str") or default_task_name
+                task_index_task_str_dict[task_idx] = task_name
+
+            info_path = os.path.join(meta_folder, "info.json")
+            total_chunks = None
+            chunks_size = None
+            if os.path.exists(info_path):
+                with open(info_path, "r") as f:
+                    metainfo = json.load(f)
+                    total_chunks = metainfo.get("total_chunks")
+                    chunks_size = metainfo.get("chunks_size")
+
+            episodes_jsonl = os.path.join(meta_folder, "episodes.jsonl")
+            epiosdes_data = load_jsonl(episodes_jsonl)
+            if not epiosdes_data:
+                epiosdes_data = []
+                chunk_dirs = sorted(glob.glob(os.path.join(data_folder, "chunk-*")))
+                for chunk_dir in chunk_dirs:
+                    chunk_idx = int(os.path.basename(chunk_dir).split('-')[-1])
+                    parquet_files = sorted(glob.glob(os.path.join(chunk_dir, "episode_*.parquet")))
+                    for pq in parquet_files:
+                        episode_index = int(os.path.splitext(os.path.basename(pq))[0].split('_')[-1])
+                        epiosdes_data.append({
+                            "episode_index": episode_index,
+                            "tasks": [task_index_task_str_dict.get(0, domain_key)],
+                            "length": 0,
+                            "chunk": chunk_idx,
+                        })
+
+            chunk_dirs_cache = sorted(glob.glob(os.path.join(data_folder, "chunk-*")))
+
+            for episode_data in tqdm(epiosdes_data):
+                episode_index = episode_data.get('episode_index')
+                if episode_index is None:
+                    continue
+                tasks = episode_data.get('tasks') or [task_index_task_str_dict.get(0, domain_key)]
+                if len(tasks) > 1:
+                    task_idx = random.choice(tasks)
+                else:
+                    task_idx = tasks[0]
+                task = task_index_task_str_dict.get(task_idx, default_task_name)
+                length = episode_data.get('length', sample_n_frames)
+                if not length:
+                    length = sample_n_frames
+
+                candidate_chunks = []
+                if episode_data.get("chunk") is not None:
+                    candidate_chunks.append(int(episode_data["chunk"]))
+                if chunks_size:
+                    candidate_chunks.append(int(episode_index // max(chunks_size, 1)))
+                if not candidate_chunks:
+                    candidate_chunks.extend([int(os.path.basename(cd).split('-')[-1]) for cd in chunk_dirs_cache])
+                candidate_chunks = list(dict.fromkeys(candidate_chunks))
+
+                parquet_path = None
+                episode_chunk = None
+                for chunk_idx in candidate_chunks:
+                    candidate_path = os.path.join(data_folder, f"chunk-{int(chunk_idx):03d}", f"episode_{episode_index:06d}.parquet")
+                    if os.path.exists(candidate_path):
+                        parquet_path = candidate_path
+                        episode_chunk = int(chunk_idx)
+                        break
+                if parquet_path is None:
+                    for cd in chunk_dirs_cache:
+                        candidate_path = os.path.join(cd, f"episode_{episode_index:06d}.parquet")
+                        if os.path.exists(candidate_path):
+                            parquet_path = candidate_path
+                            episode_chunk = int(os.path.basename(cd).split('-')[-1])
+                            break
+                if parquet_path is None:
+                    zero_rank_print(f"parquet file not found: {episode_index}")
+                    continue
+
+                video_path = os.path.join(video_folder, f"chunk-{episode_chunk:03d}", "{}", f"episode_{episode_index:06d}.mp4")
+                domain_id = DomainTable.get(domain_key, -1)
+
+                info = [
+                    video_path,
+                    None,
+                    parquet_path,
+                    domain_key, domain_id,
+                    None, task,
+                    length,
+                ]
+
+                self.dataset.append(info)
+
         assert(action_type in ["delta", "absolute", "relative"])
         self.action_type = action_type
         assert(action_space in ["eef", "joint"])
@@ -138,63 +242,60 @@ class CustomLeRobotDataset(Dataset):
 
                 print(f"Loading {_domain_name} data from {_data_root}")
                 
-                # into the meta folder
                 meta_folder = os.path.join(_data_root, _domain_name, "meta")
-                data_folder = os.path.join(_data_root, _domain_name, "data")
-                video_folder = os.path.join(_data_root, _domain_name, "videos")
-                
-                tasks_jsonl = os.path.join(meta_folder, "tasks.jsonl")
-                task_index_task_str = load_jsonl(tasks_jsonl)
-                task_index_task_str_dict = {}
-                for item in task_index_task_str:
-                    task_index_task_str_dict[item['task_index']] = item['task']
-
-
-                with open(os.path.join(meta_folder, "info.json"), "r") as f:
-                    metainfo = json.load(f)
-                    total_chunks = metainfo["total_chunks"]
-                    chunks_size = metainfo["chunks_size"]
-
-                episodes_jsonl = os.path.join(meta_folder, "episodes.jsonl")
-                epiosdes_data = load_jsonl(episodes_jsonl) # episode_index  tasks  length
-
-                for episode_data in tqdm(epiosdes_data):
-
-                    episode_index = episode_data['episode_index']
-                    tasks = episode_data['tasks']
-                    if len(tasks) > 1:
-                        task = random.choice(tasks)
-                    else:
-                        task = tasks[0]
-                    length = episode_data['length']
-                    
-                    episode_chunk = int(episode_index//chunks_size)
-
-                    parquet_path = os.path.join(data_folder, f"chunk-{episode_chunk:03d}", f"episode_{episode_index:06d}.parquet")
-                    if not os.path.exists(parquet_path):
-                        zero_rank_print(f"parquet file not found: {parquet_path}")
+                if os.path.exists(meta_folder):
+                    append_dataset_from_meta(_data_root, _domain_name, _domain_name)
+                else:
+                    domain_root = os.path.join(_data_root, _domain_name)
+                    sub_domains = []
+                    if os.path.isdir(domain_root):
+                        sub_domains = sorted([d for d in os.listdir(domain_root)
+                                              if os.path.isdir(os.path.join(domain_root, d))])
+                    if not sub_domains:
+                        zero_rank_print(f"No sub-domains found in {domain_root}")
                         continue
-
-                    video_path = os.path.join(video_folder, f"chunk-{episode_chunk:03d}", "{}", f"episode_{episode_index:06d}.mp4")
-                    
-                    info = [
-                        video_path,
-                        None, # no need for camera_info
-                        parquet_path,
-                        _domain_name, DomainTable[_domain_name],
-                        None, task, # no task_info
-                        length,
-                    ]
-                    
-                    self.dataset.append(info)
+                    for sub_domain in sub_domains:
+                        append_dataset_from_meta(domain_root, sub_domain, _domain_name)
 
         if dataset_info_cache_path is not None and not(os.path.exists(dataset_info_cache_path)):
             zero_rank_print(f"Save Cache Dataset Information to {dataset_info_cache_path}")
+            cache_dir = os.path.dirname(dataset_info_cache_path)
+            if cache_dir:
+                os.makedirs(cache_dir, exist_ok=True)
             with open(dataset_info_cache_path, "w") as f:
                 json.dump(self.dataset, f)
 
         self.length = len(self.dataset)
         zero_rank_print(f"data scale: {self.length}")
+
+        # Pre-compute contiguous episode spans for each task caption
+        self.task_spans = []
+        self.task_to_span = {}
+        if self.length > 0:
+            prev_task = None
+            span_start = 0
+            for idx, info in enumerate(self.dataset):
+                task_name = str(info[6])
+                if task_name != prev_task:
+                    if prev_task is not None:
+                        span = {
+                            "task": prev_task,
+                            "start": span_start,
+                            "length": idx - span_start,
+                        }
+                        self.task_spans.append(span)
+                        self.task_to_span[prev_task] = span
+                    prev_task = task_name
+                    span_start = idx
+            if prev_task is not None and span_start < self.length:
+                span = {
+                    "task": prev_task,
+                    "start": span_start,
+                    "length": self.length - span_start,
+                }
+                self.task_spans.append(span)
+                self.task_to_span[prev_task] = span
+        self.total_tasks = len(self.task_spans)
 
         self.chunk = chunk
         if action_chunk is None:
@@ -307,6 +408,17 @@ class CustomLeRobotDataset(Dataset):
                 video.append(video_reader.get_frame(float(idx)/fps))
             video = torch.from_numpy(np.stack(video)).permute(3, 0, 1, 2).contiguous()
             video = video.float()/255.
+            if hasattr(self, "sample_size") and self.sample_size is not None:
+                target_h, target_w = self.sample_size
+                if video.shape[-2:] != (target_h, target_w):
+                    frames = video.permute(1, 0, 2, 3)  # (t, c, h, w)
+                    frames = F.interpolate(
+                        frames,
+                        size=(target_h, target_w),
+                        mode="bilinear",
+                        align_corners=False,
+                    )
+                    video = frames.permute(1, 0, 2, 3)
             video_reader.close()
             video_list.append(video)
         video_list = torch.stack(video_list, dim=1)
@@ -397,12 +509,30 @@ class CustomLeRobotDataset(Dataset):
         domain_name = self.dataset[idx][3]
         domain_id = self.dataset[idx][4]
         caption = self.dataset[idx][6]
+        # Ensure caption is always a string (handle cache loading issues)
+        if not isinstance(caption, str):
+            caption = str(caption) if caption is not None else ""
         total_frames = self.dataset[idx][7]
         
         sample_size, specific_transforms_resize, specific_transforms_norm = self.get_transform()
         vid_indexes, indexes = self.get_frame_indexes(total_frames, )
         
         data = pd.read_parquet(parquet_path)
+
+        def pad_to_16(vec: torch.Tensor) -> torch.Tensor:
+            """
+            If channel dim is 14 (joints only), insert two gripper slots to align to 16 dims.
+            Layout: 0..6 joints, 7 gripper_a (0), 8..14 joints, 15 gripper_b (0).
+            vec: (..., C)
+            """
+            if vec.shape[-1] == 16:
+                return vec
+            if vec.shape[-1] == 14:
+                left = vec[..., :7]
+                right = vec[..., 7:]
+                z = torch.zeros_like(left[..., :1])
+                return torch.cat([left, z, right, z], dim=-1)
+            return vec
 
 
         action_mean, action_std = self.get_action_bias_std(domain_name)
@@ -412,14 +542,23 @@ class CustomLeRobotDataset(Dataset):
         ### example data
         ### data[self.action_key] with the shape of T*C: [[1.0, 1.0, 1.0, ...], ...]
         ### data[self.state_key]  with the shape of T*C: [[1.0, 1.0, 1.0, ...], ...]
+        action_len = data[self.action_key].shape[0]
+        state_len = data[self.state_key].shape[0]
         try:
-            action = np.stack([data[self.action_key][i] for i in range(data[self.action_key].shape[0])])
-            state = np.stack([data[self.state_key][i] for i in range(data[self.state_key].shape[0])])
+            action = np.stack([data[self.action_key][i] for i in range(action_len)])
+            state = np.stack([data[self.state_key][i] for i in range(state_len)])
         except:
             raise ValueError("We currently only support action and state data with the shape of T*C!")
 
+        if action_len > 0:
+            max_action_idx = action_len - 1
+            indexes = [max(0, min(max_action_idx, int(i))) for i in indexes]
+        if total_frames > 0:
+            max_video_idx = total_frames - 1
+            vid_indexes = [max(0, min(max_video_idx, int(i))) for i in vid_indexes]
+
         state = torch.FloatTensor(state)[indexes][self.n_previous-1:self.n_previous]
-        
+        state = pad_to_16(state)
         state = (state - state_mean) / state_std
 
         if self.action_type == "absolute":
@@ -427,6 +566,7 @@ class CustomLeRobotDataset(Dataset):
 
             action = action[indexes].astype(np.float32)
             action = torch.FloatTensor(action)
+            action = pad_to_16(action)
             action = (action - action_mean) / action_std
 
         elif self.action_type == "delta":
@@ -435,6 +575,8 @@ class CustomLeRobotDataset(Dataset):
             delta_act_meanv, delta_act_stdv = self.get_action_bias_std(domain_name + "_delta")
             action_curr = torch.FloatTensor(action[indexes].astype(np.float32))
             action_last = torch.FloatTensor(action[[_-1 for _ in indexes]].astype(np.float32))
+            action_curr = pad_to_16(action_curr)
+            action_last = pad_to_16(action_last)
             delta_action = action_curr - action_last
             ### keep current effector action
             delta_action[:, 6] = action_last[:, 6]
@@ -447,6 +589,7 @@ class CustomLeRobotDataset(Dataset):
 
             action_curr = action[indexes].astype(np.float32)
             action = torch.FloatTensor(action_curr)
+            action = pad_to_16(action)
             action = (action - action_mean) / action_std
             rel_action = action - state
             action = rel_action
