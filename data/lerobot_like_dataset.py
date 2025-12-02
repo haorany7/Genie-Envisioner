@@ -75,6 +75,9 @@ class CustomLeRobotDataset(Dataset):
         is_calvin: bool = False,
         # Absolute-action normalization mode: "minmax" or "zscore" (default: zscore)
         action_abs_norm: str = "zscore",
+        # Explicitly specify the domain name for statistics lookup (e.g., "ABC_lerobot")
+        # If not set, will fallback to using the task/domain name itself
+        statistics_domain: Optional[str] = None,
     ):
         """
         data_roots:              directory of LeRoBot dataset
@@ -356,6 +359,9 @@ class CustomLeRobotDataset(Dataset):
         if action_abs_norm not in ["minmax", "zscore"]:
             raise ValueError(f"Unsupported action_abs_norm '{action_abs_norm}'. Expected 'minmax' or 'zscore'.")
         self.action_abs_norm = action_abs_norm
+        
+        # Statistics domain: explicit domain name for statistics lookup
+        self.statistics_domain = statistics_domain
 
         ### validation only
         self.fix_epiidx = fix_epiidx
@@ -405,6 +411,12 @@ class CustomLeRobotDataset(Dataset):
 
 
     def get_action_bias_std(self, domain_name):
+        # Priority for statistics lookup:
+        # 1. self.statistics_domain (explicit YAML config)
+        # 2. domain_name (passed parameter, legacy fallback)
+        if self.statistics_domain:
+            domain_name = self.statistics_domain
+            
         stats = self.StatisticInfo[domain_name+"_"+self.action_space]
         return (
             torch.tensor(stats['mean']).unsqueeze(0),
@@ -415,6 +427,12 @@ class CustomLeRobotDataset(Dataset):
         """
         Fetch min / max statistics for absolute action normalization.
         """
+        # Priority for statistics lookup:
+        # 1. self.statistics_domain (explicit YAML config)
+        # 2. domain_name (passed parameter, legacy fallback)
+        if self.statistics_domain:
+            domain_name = self.statistics_domain
+            
         key = f"{domain_name}_{self.action_space}"
         if key in self.StatisticInfo and "min" in self.StatisticInfo[key]:
             stats = self.StatisticInfo[key]
@@ -579,6 +597,12 @@ class CustomLeRobotDataset(Dataset):
             return vec
 
 
+        # NOTE:
+        # - For original LeRobot-style datasets, `domain_name` is already the statistics key
+        #   (e.g., "Agibot_lerobot", "agibotworld", etc.).
+        # - For CALVIN EEF, we rely on `statistics_domain` in the YAML (e.g., "ABC_lerobot");
+        #   `get_action_bias_std` / `get_action_min_max` will internally override `domain_name`
+        #   with `self.statistics_domain` when it is set.
         action_mean, action_std = self.get_action_bias_std(domain_name)
         state_mean, state_std = self.get_action_bias_std(domain_name + "_state")
         
@@ -616,6 +640,25 @@ class CustomLeRobotDataset(Dataset):
                     if d < C_state:
                         state[:, d] = np.unwrap(state[:, d])
 
+        # ------------------------------------------------------------------
+        # Align CALVIN EEF state dim with action dim for add_state support.
+        # CALVIN robot_obs is typically 15D:
+        #   [EE pos(3), EE ori(3), gripper width(1), joint pos(7), gripper action(1)]
+        # EEF action is 7D:
+        #   [EE pos(3), EE ori(3), gripper action(1)]
+        # We construct a 7D state vector with matching semantics when needed.
+        # Only applied when explicitly marked as CALVIN-style in config.
+        # ------------------------------------------------------------------
+        if is_calvin_domain and self.action_space == "eef" and state.shape[-1] != 7: # Assuming action dim is 7
+             if state.shape[-1] == 15:
+                pos_ori = state[..., :6]       # EE position + orientation
+                grip_act = state[..., -1:]     # use gripper action (last dim)
+                state = np.concatenate([pos_ori, grip_act], axis=-1)
+             else:
+                # If not 15, we assume it's already correct or raise error if needed.
+                # But to be safe, we can check.
+                pass
+
         # Convert state to 1 x C slice for history conditioning
         state = torch.FloatTensor(state)[indexes][self.n_previous-1:self.n_previous]
         state = pad_to_16(state)
@@ -647,8 +690,8 @@ class CustomLeRobotDataset(Dataset):
                 action = (action - action_mean) / action_std
             elif self.action_abs_norm == "minmax":
                 # Min-max 归一化到 [-1, 1]
-            action_min, action_max = self.get_action_min_max(domain_name)
-            action = 2 * (action - action_min) / (action_max - action_min + 1e-6) - 1
+                action_min, action_max = self.get_action_min_max(domain_name)
+                action = 2 * (action - action_min) / (action_max - action_min + 1e-6) - 1
             else:
                 raise ValueError(
                     f"Unsupported action_abs_norm '{self.action_abs_norm}'. Expected 'zscore' or 'minmax'."
@@ -682,27 +725,6 @@ class CustomLeRobotDataset(Dataset):
         else:
 
             raise NotImplementedError
-
-        # ------------------------------------------------------------------
-        # Align CALVIN EEF state dim with action dim for add_state support.
-        # CALVIN robot_obs is typically 15D:
-        #   [EE pos(3), EE ori(3), gripper width(1), joint pos(7), gripper action(1)]
-        # EEF action is 7D:
-        #   [EE pos(3), EE ori(3), gripper action(1)]
-        # We construct a 7D state vector with matching semantics when needed.
-        # Only applied when explicitly marked as CALVIN-style in config.
-        # ------------------------------------------------------------------
-        is_calvin_domain = bool(getattr(self, "is_calvin", False))
-        if is_calvin_domain and self.action_space == "eef" and state.shape[-1] != action.shape[-1]:
-            if state.shape[-1] == 15 and action.shape[-1] == 7:
-                pos_ori = state[..., :6]       # EE position + orientation
-                grip_act = state[..., -1:]     # use gripper action (last dim)
-                state = torch.cat([pos_ori, grip_act], dim=-1)
-            else:
-                raise ValueError(
-                    f"[CALVIN EEF] Unexpected (state_dim={state.shape[-1]}, action_dim={action.shape[-1]}). "
-                    "Expected (15, 7). Please check dataset statistics and action/state definitions."
-                )
 
 
         videos = self.seek_mp4(video_path, self.valid_cam, vid_indexes)

@@ -31,7 +31,7 @@ pipeline_class: CustomPipeline
 # 
 return_action: true
 return_video: true
-train_mode: 'action_only'
+train_mode: 'action_full'
 action_loss_scale: 1.0
 
 # total training step is decided by the minimum of the below two
@@ -57,7 +57,7 @@ add_state: True ### whether add state to the action chunk
 caption_dropout_p: 0.06
 
 # dataloader
-batch_size: 8
+batch_size: 16
 dataloader_num_workers: 8
 pin_memory: True
 
@@ -135,6 +135,7 @@ data:
     action_type: "absolute"
     action_space: "eef"
     action_abs_norm: "zscore"
+    statistics_domain: "ABC_lerobot"
     is_calvin: true
   val:
     data_roots: ["/work/hdd/behe/calvin/D_lerobot"]
@@ -152,7 +153,7 @@ data:
     action_type: "absolute"
     action_space: "eef"
     action_abs_norm: "zscore"
-    force_dataset_statistics_consistency: "ABC_lerobot"
+    statistics_domain: "ABC_lerobot"
     is_calvin: true
 
 use_color_jitter: true
