@@ -386,7 +386,7 @@ class CustomLeRobotDataset(Dataset):
         indexes = np.clip(indexes, a_min=1, a_max=total_frames-1).tolist()
         video_end = indexes[-self.action_chunk:]
         mem_candidates = [
-            indexes[int(i)] for i in range(0, self.sample_n_frames-self.action_chunk-1)
+            indexes[int(i)] for i in range(0, self.sample_n_frames-self.action_chunk)
         ]
 
         if self.previous_pick_mode == 'uniform':
@@ -468,31 +468,28 @@ class CustomLeRobotDataset(Dataset):
                     video = frames.permute(1, 0, 2, 3)
             video_reader.close()
             video_list.append(video)
-        video_list = torch.stack(video_list, dim=1)
         return video_list
-
 
 
     def transform_video(self, videos, specific_transforms_resize, intrinsics, sample_size):
         """
         crop (optional) and resize the videos, and modify the intrinsic accordingly
         """
-        c, v, t, h, w = videos.shape
+        v = len(videos)
         new_videos = []
         new_intrinsics = []
         for iv in range(v):
-            video = videos[:, iv]
+            video = videos[iv]
+            c, t, h, w = video.shape
             if self.random_crop:
                 h_start, w_start, h_crop, w_crop = gen_crop_config(video)
                 video = video[:,:,h_start:h_start+h_crop,w_start:w_start+w_crop]
                 if intrinsics is not None:
                     intrinsic = intrin_crop_transform(intrinsics[iv], h_start, w_start)
-                
                 h, w = h_crop, w_crop
             if intrinsics is not None:
                 intrinsic = intrinsic_transform(intrinsic, (h, w), sample_size, self.preprocess)
                 new_intrinsics.append(intrinsic)
-                
             video = specific_transforms_resize(video)
             new_videos.append(video)
         new_videos = torch.stack(new_videos, dim=1)

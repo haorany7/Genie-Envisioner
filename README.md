@@ -6,7 +6,7 @@
 
  <a href='https://arxiv.org/abs/2508.05635'><img src='https://img.shields.io/badge/arXiv-2508.05635-b31b1b.svg'></a> &nbsp; <a href='https://genie-envisioner.github.io/'><img src='https://img.shields.io/badge/Site-GenieEnvisioner-blue'></a> &nbsp;
  
-Join our [WeChat Group](figs/joint_wechat_group.jpg)
+Join our [WeChat Group](figs/join_wechat_group.jpg)
 
 
 </div>
@@ -337,6 +337,51 @@ python gesim_video_gen_examples/infer_gesim.py \
     --action_path=gesim_video_gen_examples/sample_0/actions.npy \
     --output_path=gesim_video_gen_examples/sample_0_res
 ```
+
+
+We provide an example function of obtaining camera-to-base extrinsics of all frames when only the action sequence and the camera-to-base extrinsc of the first frame are available. Detailed usage is provided in [``gesim_video_gen_examples/get_example_gesim_inputs.py``](https://github.com/AgibotTech/Genie-Envisioner/blob/01adfce22c2b8f9e53cb12a36ec1c1ef91420be9/gesim_video_gen_examples/get_example_gesim_inputs.py#L147C13-L147C23)
+
+
+```
+import scipy
+from scipy.spatial.transform import Rotation
+
+def get_cam2base(poses, init_pose=None, init_c2b=None, c2e=None):
+    """
+    poses:    T*7 ndarray. The following end-effection poses: T*{xyz+quat(xyzw)}
+    c2e:      4x4 ndarray. The camera-to-end extrinsic
+    init_pose:  7 ndarray. The initial pose: {xyz+quat(xyzw)}
+    init_c2b: 4x4 ndarray. The camera-to-base extrinsic of the first frame
+    """
+
+    ### when c2e is not provided, we need to obtain c2e from init_pose and init_c2b first
+    assert((init_c2b is not None and init_pose is not None) or (c2e is not None))
+
+    ###    cam2base = end2base @ cam2end = pose @ cam2end
+    ### -> cam2end = pose^-1 @ cam2base
+
+    if c2e is None:
+        ### the first pose matrix (= end-to-base) of left or right end-effector         
+        pose_mat = np.eye(4)
+        pose_mat[:3,:3] = Rotation.from_quat(init_pose[3:7]).as_matrix()
+        pose_mat[:3,3] = init_pose[:3]
+
+        ### Get cam2end from the first pose matrix and the first cam2base matrix
+        c2e = np.dot(np.linalg.inv(pose_mat), init_c2b)
+
+    ### Get cam2base extrinsics of each frame
+    c2bs = []
+    for _i in range(poses.shape[0]):
+        pose_mat = np.eye(4)
+        pose_mat[:3,:3] = Rotation.from_quat(poses[_i, 3:7]).as_matrix()
+        pose_mat[:3,3] = poses[_i, :3]
+        c2b = np.dot(pose_mat, c2e)
+        c2bs.append(c2b)
+    c2bs = np.stack(c2bs, axis=0)
+    return c2bs
+
+```
+
 
 
 ## Example results of GE-sim
