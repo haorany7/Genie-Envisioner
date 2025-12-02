@@ -23,6 +23,7 @@ from tqdm import tqdm
 import torch.nn.functional as F
 import cv2
 from PIL import Image
+from typing import Optional
 
 from data.utils.domain_table import DomainTable
 from data.utils.statistics import StatisticInfo
@@ -70,6 +71,10 @@ class CustomLeRobotDataset(Dataset):
         fix_sidx = None,
         fix_mem_idx = None,
         stat_file = None,
+        # Explicit CALVIN flag to control CALVIN-specific handling
+        is_calvin: bool = False,
+        # Absolute-action normalization mode: "minmax" or "zscore" (default: zscore)
+        action_abs_norm: str = "zscore",
     ):
         """
         data_roots:              directory of LeRoBot dataset
@@ -343,6 +348,15 @@ class CustomLeRobotDataset(Dataset):
 
         self.use_unified_prompt = use_unified_prompt
 
+        # Whether to apply CALVIN-specific handling (state/action layout, stats, etc.)
+        self.is_calvin = is_calvin
+
+        # Absolute action normalization mode
+        action_abs_norm = (action_abs_norm or "minmax").lower()
+        if action_abs_norm not in ["minmax", "zscore"]:
+            raise ValueError(f"Unsupported action_abs_norm '{action_abs_norm}'. Expected 'minmax' or 'zscore'.")
+        self.action_abs_norm = action_abs_norm
+
         ### validation only
         self.fix_epiidx = fix_epiidx
         self.fix_sidx = fix_sidx
@@ -580,7 +594,7 @@ class CustomLeRobotDataset(Dataset):
         try:
             action = np.stack([data[self.action_key][i] for i in range(action_len)])
             state = np.stack([data[self.state_key][i] for i in range(state_len)])
-        except:
+        except Exception:
             raise ValueError("We currently only support action and state data with the shape of T*C!")
 
         if action_len > 0:
@@ -590,9 +604,39 @@ class CustomLeRobotDataset(Dataset):
             max_video_idx = total_frames - 1
             vid_indexes = [max(0, min(max_video_idx, int(i))) for i in vid_indexes]
 
+        # -------------------------------------------------------------
+        # Unwrap angles in state for CALVIN EEF mode (before indexing & normalization)
+        # This ensures smooth angle trajectories for the robot state history
+        # -------------------------------------------------------------
+        is_calvin_domain = bool(getattr(self, "is_calvin", False))
+        if is_calvin_domain and self.action_space in ["eef", "eef_calvin"]:
+            # CALVIN state is 15D: [EE pos(3), EE ori(3), gripper_width(1), joint_pos(7), gripper_action(1)]
+            # EE orientation (indices 3,4,5) are Euler angles that need unwrapping
+            T_state, C_state = state.shape
+            if T_state > 0 and C_state >= 6:
+                angle_dims = [3, 4, 5]  # EE orientation: roll, pitch, yaw
+                for d in angle_dims:
+                    if d < C_state:
+                        state[:, d] = np.unwrap(state[:, d])
+
+        # Convert state to 1 x C slice for history conditioning
         state = torch.FloatTensor(state)[indexes][self.n_previous-1:self.n_previous]
         state = pad_to_16(state)
+        # State 始终使用 z-score 归一化（与统计文件中的 state_* 对齐）
         state = (state - state_mean) / state_std
+
+        # -------------------------------------------------------------
+        # Optional EEF angle unwrapping for CALVIN absolute actions
+        # Ensures smooth angle trajectories (no 2π jumps) before norm.
+        # Only applied when explicitly marked as CALVIN + EEF action.
+        # -------------------------------------------------------------
+        if is_calvin_domain and self.action_space == "eef" and self.action_type == "absolute":
+            T, C = action.shape
+            if T > 0 and C >= 6:
+                angle_dims = [3, 4, 5]  # roll, pitch, yaw
+                for d in angle_dims:
+                    if d < C:
+                        action[:, d] = np.unwrap(action[:, d])
 
         if self.action_type == "absolute":
             ### act = norm(act)
@@ -600,8 +644,18 @@ class CustomLeRobotDataset(Dataset):
             action = action[indexes].astype(np.float32)
             action = torch.FloatTensor(action)
             action = pad_to_16(action)
+
+            if self.action_abs_norm == "zscore":
+                # Z-score 归一化（推荐）
+                action = (action - action_mean) / action_std
+            elif self.action_abs_norm == "minmax":
+                # Min-max 归一化到 [-1, 1]
             action_min, action_max = self.get_action_min_max(domain_name)
             action = 2 * (action - action_min) / (action_max - action_min + 1e-6) - 1
+            else:
+                raise ValueError(
+                    f"Unsupported action_abs_norm '{self.action_abs_norm}'. Expected 'zscore' or 'minmax'."
+                )
 
         elif self.action_type == "delta":
             ### delta_act = norm(act_{t} - act_{t-1})
@@ -632,6 +686,27 @@ class CustomLeRobotDataset(Dataset):
 
             raise NotImplementedError
 
+        # ------------------------------------------------------------------
+        # Align CALVIN EEF state dim with action dim for add_state support.
+        # CALVIN robot_obs is typically 15D:
+        #   [EE pos(3), EE ori(3), gripper width(1), joint pos(7), gripper action(1)]
+        # EEF action is 7D:
+        #   [EE pos(3), EE ori(3), gripper action(1)]
+        # We construct a 7D state vector with matching semantics when needed.
+        # Only applied when explicitly marked as CALVIN-style in config.
+        # ------------------------------------------------------------------
+        is_calvin_domain = bool(getattr(self, "is_calvin", False))
+        if is_calvin_domain and self.action_space == "eef" and state.shape[-1] != action.shape[-1]:
+            if state.shape[-1] == 15 and action.shape[-1] == 7:
+                pos_ori = state[..., :6]       # EE position + orientation
+                grip_act = state[..., -1:]     # use gripper action (last dim)
+                state = torch.cat([pos_ori, grip_act], dim=-1)
+            else:
+                raise ValueError(
+                    f"[CALVIN EEF] Unexpected (state_dim={state.shape[-1]}, action_dim={action.shape[-1]}). "
+                    "Expected (15, 7). Please check dataset statistics and action/state definitions."
+                )
+
 
         videos = self.seek_mp4(video_path, self.valid_cam, vid_indexes)
 
@@ -641,6 +716,57 @@ class CustomLeRobotDataset(Dataset):
         videos = self.normalize_video(videos, specific_transforms_norm)
 
         return videos, action, caption, state
+
+
+    def get_step_data(self, episode_idx: int, step_idx: int, rollout_horizon: Optional[int] = None):
+        """
+        Deterministically fetch a slice around `step_idx` for the given episode.
+
+        This mirrors GR00T's `calc_mse_for_single_trajectory` behaviour: the caller only
+        needs to specify the episode id and current step, while this helper ensures we
+        always have `n_previous` history frames plus one action chunk worth of predictions.
+        """
+        if episode_idx < 0 or episode_idx >= self.length:
+            raise IndexError(f"Episode index {episode_idx} out of range {self.length}")
+
+        total_frames = int(self.dataset[episode_idx][7])
+        # How many future steps we expect. Default to dataset action_chunk.
+        horizon = rollout_horizon if rollout_horizon and rollout_horizon > 0 else self.action_chunk
+        required = self.n_previous + horizon
+
+        # Choose a safe starting index so we never overflow episode length.
+        max_start = max(self.n_previous, total_frames - required)
+        safe_start_idx = int(np.clip(step_idx, self.n_previous, max_start))
+
+        # Build deterministic memory indices: consecutive frames right before safe_start_idx.
+        mem_start = safe_start_idx - self.n_previous
+        mem_idxs = [max(0, mem_start + i) for i in range(self.n_previous)]
+
+        # Backup current fixed settings.
+        prev_fix_epiidx = self.fix_epiidx
+        prev_fix_sidx = self.fix_sidx
+        prev_fix_mem_idx = self.fix_mem_idx
+
+        try:
+            self.fix_epiidx = episode_idx
+            self.fix_sidx = safe_start_idx
+            self.fix_mem_idx = mem_idxs
+            video, actions, caption, state = self.get_batch(episode_idx)
+        finally:
+            # Restore original fixed indices so existing code paths are unaffected.
+            self.fix_epiidx = prev_fix_epiidx
+            self.fix_sidx = prev_fix_sidx
+            self.fix_mem_idx = prev_fix_mem_idx
+
+        return {
+            "video": video,
+            "actions": actions,
+            "caption": caption,
+            "state": state,
+            "total_frames": total_frames,
+            "start_index": safe_start_idx,
+            "episode_index": episode_idx,
+        }
 
 
     def __len__(self):

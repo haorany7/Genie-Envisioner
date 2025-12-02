@@ -20,6 +20,10 @@ def main():
     parser.add_argument('--domain_name', type=str, default="agibotworld", help='Domain name of the validation dataset, used in inference stage only')
     parser.add_argument('--tasks_per_run', type=int, default=None, help='Number of distinct tasks to evaluate during inference')
     parser.add_argument('--episodes_per_task', type=int, default=None, help='Number of episodes to sample per task during inference')
+    parser.add_argument('--rollout_steps', type=int, default=0, help='When >0, perform sequential rollout for the specified number of steps instead of a single open-loop chunk.')
+    parser.add_argument('--occlude_view', type=str, default=None, help='Name (or index) of the camera view to occlude during inference.')
+    parser.add_argument('--occlude_start', type=int, default=None, help='Start timestep (inclusive) for occlusion. Defaults to 0 when occlude_view is set.')
+    parser.add_argument('--occlude_end', type=int, default=None, help='End timestep (exclusive) for occlusion. Defaults to the total clip length when occlude_view is set.')
 
     args = parser.parse_args()
     
@@ -27,7 +31,8 @@ def main():
         print(
             f"[DEBUG main] Inference parameters: n_validation={args.n_validation}, "
             f"n_chunk_action={args.n_chunk_action}, domain_name={args.domain_name}, "
-            f"tasks_per_run={args.tasks_per_run}, episodes_per_task={args.episodes_per_task}"
+            f"tasks_per_run={args.tasks_per_run}, episodes_per_task={args.episodes_per_task}, "
+            f"rollout_steps={args.rollout_steps}"
         )
     
     Runner = import_custom_class(
@@ -64,13 +69,29 @@ def main():
             runner.args.diffusion_model['model_path'] = args.checkpoint_path
         runner.prepare_val_dataset()
         runner.prepare_models()
-        runner.infer(
-            n_chunk_action=args.n_chunk_action,
-            n_validation=args.n_validation,
-            domain_name=args.domain_name,
-            tasks_per_run=tasks_per_run,
-            episodes_per_task=episodes_per_task,
-        )
+
+        if args.occlude_view is not None:
+            setattr(runner.args, "occlude_view", args.occlude_view)
+        if args.occlude_start is not None:
+            setattr(runner.args, "occlude_start", max(args.occlude_start, 0))
+        if args.occlude_end is not None:
+            setattr(runner.args, "occlude_end", max(args.occlude_end, 0))
+        if args.rollout_steps and args.rollout_steps > 0:
+            runner.rollout(
+                rollout_steps=args.rollout_steps,
+                n_validation=args.n_validation,
+                domain_name=args.domain_name,
+                tasks_per_run=tasks_per_run,
+                episodes_per_task=episodes_per_task,
+            )
+        else:
+            runner.infer(
+                n_chunk_action=args.n_chunk_action,
+                n_validation=args.n_validation,
+                domain_name=args.domain_name,
+                tasks_per_run=tasks_per_run,
+                episodes_per_task=episodes_per_task,
+            )
 
     else:
         raise NotImplementedError

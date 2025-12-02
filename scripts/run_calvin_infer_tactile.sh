@@ -23,13 +23,14 @@ PROJ_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 # Paths
 MAIN_PY="${PROJ_ROOT}/main.py"
 CONFIG_PATH="${PROJ_ROOT}/configs/ltx_model/video_model_infer_fast_calvin_tactile.yaml"
-CKPT_PATH="${CKPT_PATH:-/projects/behe/haorany7/WORLD-MODEL-TOUCH/pretrained_models/genie_envisioner/GE_base_fast_v0.1.safetensors}"
+#CKPT_PATH_DEFAULT="/projects/behe/haorany7/WORLD-MODEL-TOUCH/pretrained_models/genie_envisioner/GE_base_fast_v0.1.safetensors"
+CKPT_PATH="${CKPT_PATH:-/work/hdd/bche/haorany7/WORLD-MODEL-TOUCH/ckpt_from_zzy/calvin_with_tactile_video_12k_action_chunk_9/diffusion_pytorch_model_video.safetensors}"
 OUTPUT_DIR="${OUTPUT_DIR:-/projects/behe/haorany7/WORLD-MODEL-TOUCH/outputs/calvin_infer_tactile/$(date +%Y%m%d_%H%M%S)}"
 DOMAIN_NAME="${DOMAIN_NAME:-ABC_lerobot_joint_action}"
 TASKS_PER_RUN="${TASKS_PER_RUN:-34}"
 EPISODES_PER_TASK="${EPISODES_PER_TASK:-1}"
 BASE_N_VALIDATION="${N_VALIDATION:-34}"
-N_CHUNK_ACTION="${N_CHUNK_ACTION:-30}"
+N_CHUNK_ACTION="${N_CHUNK_ACTION:-18}"
 
 if [[ -n "${TASKS_PER_RUN}" && "${TASKS_PER_RUN}" -gt 0 ]]; then
   if [[ -z "${EPISODES_PER_TASK}" || "${EPISODES_PER_TASK}" -le 0 ]]; then

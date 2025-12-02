@@ -1,10 +1,10 @@
-model_name: 'ltx_train'
+model_name: 'ltx_policy_calvin_tactile_eef_zscore_absolute_rotate_blue_right'
 is_i2v: True
-report_to: None
-tracker_name: ltx_trainer
+report_to: wandb
+tracker_name: ltx_policy_calvin_tactile_eef_zscore_absolute_rotate_blue_right
 
-logging_dir: logs
-output_dir: PATH_TO_SAVE_LOGS_AND_CHECKPOINTS
+logging_dir: logs/calvin_tactile_eef_zscore_abs_policy
+output_dir: /work/hdd/bche/haorany7/WORLD-MODEL-TOUCH/outputs/calvin_tactile_eef_zscore_abs_policy
 pretrained_model_name_or_path: /projects/behe/haorany7/WORLD-MODEL-TOUCH/pretrained_models/ltx_video
 
 ###
@@ -29,20 +29,20 @@ pipeline_class_path: models/pipeline/custom_pipeline.py
 pipeline_class: CustomPipeline
 
 # 
-return_action: false
+return_action: true
 return_video: true
-train_mode: 'video_only'
+train_mode: 'action_only'
 action_loss_scale: 1.0
 
 # total training step is decided by the minimum of the below two
-train_steps: 1000000
-train_epochs: 10000
-steps_to_save: 2000
+train_steps: 40100
+train_epochs: 2000
+steps_to_save: 1000
 steps_to_log: 20
-steps_to_val: 2000
+steps_to_val: 500
 
 mixed_precision: bf16
-allow_tf32: False
+allow_tf32: True
 
 # timeout, seconds
 nccl_timeout: 600
@@ -52,7 +52,7 @@ seed: 42
 enable_slicing: True
 enable_tiling: True
 
-add_state: False
+add_state: True ### whether add state to the action chunk
 
 caption_dropout_p: 0.06
 
@@ -80,7 +80,7 @@ max_grad_norm: 1.0
 gradient_accumulation_steps: 1
 
 # lr_scheduler Config
-lr_scheduler: constant_with_warmup
+lr_scheduler: cosine
 lr_warmup_steps: 1000
 lr_num_cycles: 1
 lr_power: 1.0
@@ -112,18 +112,18 @@ diffusion_model:
     patch_size: 1
     patch_size_t: 1
     qk_norm: rms_norm_across_heads
-    action_expert: false
-    action_in_channels: 16
+    action_expert: true
+    action_in_channels: 7
     action_num_attention_heads: 16
     action_attention_head_dim: 32
 
 data:
 ### more details can be found in data/utils/*_dataset.py
   train:
-    data_roots: ["/work/hdd/behe/calvin"]
-    domains: [D_lerobot_joint_action]
+    data_roots: ["/work/hdd/behe/calvin/ABC_lerobot"]
+    domains: ["rotate_blue_block_right"]
     sample_size: [192, 256]
-    sample_n_frames: 65  #spefic to calvin, in other agibot-world, it is 900
+    sample_n_frames: 65
     preprocess :  'resize'
     valid_cam :  ['observation.images.camera1', 'observation.images.camera2', 'observation.images.gelsight1']
     chunk: 9
@@ -131,14 +131,16 @@ data:
     n_previous: 4
     previous_pick_mode: 'random'
     random_crop: False
-    dataset_info_cache_path: "/projects/behe/haorany7/WORLD-MODEL-TOUCH/cache/calvin_infer_tactile_cache/ABC_joint_action_train.json"
+    dataset_info_cache_path: "/projects/behe/haorany7/WORLD-MODEL-TOUCH/cache/calvin_policy_tactile_eef_zscore/train_dataset_info.json"
     action_type: "absolute"
-    action_space: "joint"
+    action_space: "eef"
+    action_abs_norm: "zscore"
+    is_calvin: true
   val:
-    data_roots: ["/work/hdd/behe/calvin"]
-    domains: [D_lerobot_joint_action]
+    data_roots: ["/work/hdd/behe/calvin/D_lerobot"]
+    domains: ["rotate_blue_block_right"]
     sample_size: [192, 256]
-    sample_n_frames: 65  #spefic to calvin, in other agibot-world, it is 900
+    sample_n_frames: 65
     preprocess :  'resize'
     valid_cam :  ['observation.images.camera1', 'observation.images.camera2', 'observation.images.gelsight1']
     chunk: 9
@@ -146,12 +148,15 @@ data:
     n_previous: 4
     previous_pick_mode: 'random'
     random_crop: False
-    dataset_info_cache_path: "/projects/behe/haorany7/WORLD-MODEL-TOUCH/cache/calvin_infer_tactile_cache/ABC_joint_action_val.json"
+    dataset_info_cache_path: "/projects/behe/haorany7/WORLD-MODEL-TOUCH/cache/calvin_policy_tactile_eef_zscore/val_dataset_info.json"
     action_type: "absolute"
-    action_space: "joint"
+    action_space: "eef"
+    action_abs_norm: "zscore"
+    force_dataset_statistics_consistency: "ABC_lerobot"
+    is_calvin: true
 
 use_color_jitter: true
-num_inference_step: 50
+num_inference_step: 20
 noisy_video: true
 
 # false for quick debug, for training set True
