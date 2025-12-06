@@ -18,6 +18,7 @@ def main():
     parser.add_argument('--n_chunk_action', type=int, default=1, help='num of action chunks to predict, used in action inference stage only')
     parser.add_argument('--output_path', type=str, default=None, help='Path to save outputs, used in inference stage only')
     parser.add_argument('--domain_name', type=str, default="agibotworld", help='Domain name of the validation dataset, used in inference stage only')
+    parser.add_argument('--statistics_domain', type=str, default=None, help='Domain name for statistics lookup, overrides domain_name if set')
     parser.add_argument('--tasks_per_run', type=int, default=None, help='Number of distinct tasks to evaluate during inference')
     parser.add_argument('--episodes_per_task', type=int, default=None, help='Number of episodes to sample per task during inference')
     parser.add_argument('--rollout_steps', type=int, default=0, help='When >0, perform sequential rollout for the specified number of steps instead of a single open-loop chunk.')
@@ -83,6 +84,7 @@ def main():
                 domain_name=args.domain_name,
                 tasks_per_run=tasks_per_run,
                 episodes_per_task=episodes_per_task,
+                statistics_domain=args.statistics_domain,
             )
         else:
             runner.infer(
@@ -91,6 +93,7 @@ def main():
                 domain_name=args.domain_name,
                 tasks_per_run=tasks_per_run,
                 episodes_per_task=episodes_per_task,
+                statistics_domain=args.statistics_domain,
             )
 
     else:

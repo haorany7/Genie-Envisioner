@@ -649,15 +649,17 @@ class CustomLeRobotDataset(Dataset):
         # We construct a 7D state vector with matching semantics when needed.
         # Only applied when explicitly marked as CALVIN-style in config.
         # ------------------------------------------------------------------
-        if is_calvin_domain and self.action_space == "eef" and state.shape[-1] != 7: # Assuming action dim is 7
-             if state.shape[-1] == 15:
-                pos_ori = state[..., :6]       # EE position + orientation
-                grip_act = state[..., -1:]     # use gripper action (last dim)
-                state = np.concatenate([pos_ori, grip_act], axis=-1)
-             else:
-                # If not 15, we assume it's already correct or raise error if needed.
-                # But to be safe, we can check.
-                pass
+        if is_calvin_domain:
+            if self.action_space == "eef" and state.shape[-1] != 7:
+                if state.shape[-1] == 15:
+                    pos_ori = state[..., :6]       # EE position + orientation
+                    grip_act = state[..., -1:]     # gripper action (last dim)
+                    state = np.concatenate([pos_ori, grip_act], axis=-1)
+            elif self.action_space == "joint" and state.shape[-1] != 8:
+                if state.shape[-1] == 15:
+                    joints = state[..., 7:14]      # joint positions (7 dims)
+                    gripper = state[..., 14:]      # gripper action (last dim)
+                    state = np.concatenate([joints, gripper], axis=-1)
 
         # Convert state to 1 x C slice for history conditioning
         state = torch.FloatTensor(state)[indexes][self.n_previous-1:self.n_previous]
@@ -694,7 +696,7 @@ class CustomLeRobotDataset(Dataset):
                 action = 2 * (action - action_min) / (action_max - action_min + 1e-6) - 1
             else:
                 raise ValueError(
-                    f"Unsupported action_abs_norm '{self.action_abs_norm}'. Expected 'zscore' or 'minmax'."
+                    f"Unsupported action_abs_norm '{self.action_abs_norm}'. Expected 'zscore' or 'minmax'."\
                 )
 
         elif self.action_type == "delta":

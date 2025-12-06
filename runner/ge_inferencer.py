@@ -136,7 +136,7 @@ class Inferencer:
             return collated
         
         self.val_dataloader = torch.utils.data.DataLoader(
-            self.val_dataset, batch_size=1, shuffle=False, collate_fn=collate_fn
+            self.val_dataset, batch_size=1, shuffle=False, collate_fn=collate_fn, num_workers=0
         )
 
 
@@ -215,7 +215,7 @@ class Inferencer:
             self.args.pipeline_class, getattr(self.args, "pipeline_class_path", "diffusers")
         )
 
-    def _denormalize_actions(self, batch, preds_tensor, domain_name, action_type, action_space):
+    def _denormalize_actions(self, batch, preds_tensor, domain_name, action_type, action_space, statistics_domain=None):
         gt_actions = batch['actions'][:, self.args.data['train']['n_previous']:]
 
         pd_actions_arr = preds_tensor.detach().cpu().to(torch.float32).numpy()
@@ -225,7 +225,8 @@ class Inferencer:
         gripper_dim = 1
         arm_dim = (n_dim - gripper_dim) // 2
 
-        act_stats_key = f"{domain_name}_{action_space}"
+        stats_lookup_domain = statistics_domain if statistics_domain else domain_name
+        act_stats_key = f"{stats_lookup_domain}_{action_space}"
         if act_stats_key not in self.StatisticInfo:
             raise KeyError(f"Statistics key '{act_stats_key}' not found in StatisticInfo.")
         act_mean = np.expand_dims(np.array(self.StatisticInfo[act_stats_key]["mean"]), axis=0)
@@ -259,7 +260,7 @@ class Inferencer:
             data_root = None
 
         if action_type == "absolute":
-            candidates = [f"{domain_name}_{action_space}"]
+            candidates = [f"{stats_lookup_domain}_{action_space}"]
             if dataset_name:
                 candidates.append(f"{dataset_name}_joint_action_{action_space}")
                 candidates.append(f"{dataset_name}_{action_space}")
@@ -303,7 +304,7 @@ class Inferencer:
         elif action_type == "delta":
             state = batch["state"][0].data.cpu().float().numpy()
             state = state * act_std + act_mean
-            delta_stats_key = f"{domain_name}_delta_{action_space}"
+            delta_stats_key = f"{stats_lookup_domain}_delta_{action_space}"
             dact_mean = np.expand_dims(np.array(self.StatisticInfo[delta_stats_key]["mean"]), axis=0)
             dact_std = np.expand_dims(np.array(self.StatisticInfo[delta_stats_key]["std"]), axis=0)
             pd_actions_arr = pd_actions_arr * dact_std + dact_mean
@@ -536,6 +537,7 @@ class Inferencer:
         domain_name="agibotworld",
         tasks_per_run=None,
         episodes_per_task=1,
+        statistics_domain=None,
     ):
 
         os.makedirs(model_save_dir,exist_ok=True)
@@ -719,54 +721,9 @@ class Inferencer:
 
 
                 if self.args.return_action:
-
-                    gt_actions = batch['actions'][:,self.args.data['train']['n_previous']:]
-
-                    # shape t, c
-                    pd_actions_arr = preds['action'][0].detach().cpu().to(torch.float).numpy()
-                    gt_actions_arr = gt_actions[0].detach().cpu().to(torch.float).numpy()
-
-                    ###
-                    n_dim = pd_actions_arr.shape[-1]
-                    gripper_dim = 1
-                    arm_dim = (n_dim - gripper_dim)//2
-
-                    act_mean = np.expand_dims(np.array(self.StatisticInfo[domain_name + "_" + action_space]["mean"]), axis=0)
-                    act_std = np.expand_dims(np.array(self.StatisticInfo[domain_name + "_" + action_space]["std"]), axis=0)
-
-                    if action_type == "absolute":
-                        ### abs_act = norm(act)
-                        pd_actions_arr = pd_actions_arr * act_std + act_mean
-                        gt_actions_arr = gt_actions_arr * act_std + act_mean
-
-                    elif action_type == "delta":
-                        ### delta_act = act_t - act_{t-1}
-                        ### delta_act = norm(delta_act)
-                        state = batch["state"][0].data.cpu().float().numpy()
-                        state = state * act_std + act_mean
-                        dact_mean = np.expand_dims(np.array(self.StatisticInfo[domain_name + "_delta" + "_" + action_space]["mean"]), axis=0)
-                        dact_std = np.expand_dims(np.array(self.StatisticInfo[domain_name+ "_delta" + "_" + action_space]["std"]), axis=0)
-                        pd_actions_arr = pd_actions_arr * dact_std + dact_mean
-                        gt_actions_arr = gt_actions_arr * dact_std + dact_mean
-                        ### left arm
-                        pd_actions_arr[:, :arm_dim] = np.cumsum(pd_actions_arr[:, :arm_dim], axis=0) + state[:, :arm_dim]
-                        gt_actions_arr[:, :arm_dim] = np.cumsum(gt_actions_arr[:, :arm_dim], axis=0) + state[:, :arm_dim]
-                        ### right arm
-                        pd_actions_arr[:, arm_dim+gripper_dim:2*arm_dim+gripper_dim] = np.cumsum(pd_actions_arr[:, arm_dim+gripper_dim:2*arm_dim+gripper_dim], axis=0) + state[:, arm_dim+gripper_dim:2*arm_dim+gripper_dim]
-                        gt_actions_arr[:, arm_dim+gripper_dim:2*arm_dim+gripper_dim] = np.cumsum(gt_actions_arr[:, arm_dim+gripper_dim:2*arm_dim+gripper_dim], axis=0) + state[:, arm_dim+gripper_dim:2*arm_dim+gripper_dim]
-
-                    elif action_type == "relative":
-                        ### rel_act = norm(act) - norm(state)
-                        state = batch["state"][0].data.cpu().float().numpy()
-                        pd_actions_arr[:, :arm_dim] = pd_actions_arr[:, :arm_dim] + state[:, :arm_dim]
-                        pd_actions_arr[:, arm_dim+gripper_dim:2*arm_dim+gripper_dim] = pd_actions_arr[:, arm_dim+gripper_dim:2*arm_dim+gripper_dim] + state[:, arm_dim+gripper_dim:2*arm_dim+gripper_dim]
-                        pd_actions_arr = pd_actions_arr * act_std + act_mean
-                        gt_actions_arr[:, :arm_dim] = gt_actions_arr[:, :arm_dim] + state[:, :arm_dim]
-                        gt_actions_arr[:, arm_dim+gripper_dim:2*arm_dim+gripper_dim] = gt_actions_arr[:, arm_dim+gripper_dim:2*arm_dim+gripper_dim] + state[:, arm_dim+gripper_dim:2*arm_dim+gripper_dim]
-                        gt_actions_arr = gt_actions_arr * act_std + act_mean
-
-                    else:
-                        raise NotImplementedError
+                    pd_actions_arr, gt_actions_arr = self._denormalize_actions(
+                        batch, preds['action'][0], domain_name, action_type, action_space, statistics_domain
+                    )
 
                     if pd_actions_arr_all is None:
                         pd_actions_arr_all = pd_actions_arr
@@ -844,12 +801,13 @@ class Inferencer:
         domain_name="agibotworld",
         tasks_per_run=None,
         episodes_per_task=1,
+        statistics_domain=None,
     ):
         print(
             f"[DEBUG infer] Received parameters: n_chunk_action={n_chunk_action}, "
             f"n_chunk_video={n_chunk_video}, n_validation={n_validation}, "
             f"domain_name={domain_name}, tasks_per_run={tasks_per_run}, "
-            f"episodes_per_task={episodes_per_task}"
+            f"episodes_per_task={episodes_per_task}, statistics_domain={statistics_domain}"
         )
         model_save_dir = os.path.join(self.save_folder,f'Inference')
         self.validate(
@@ -861,6 +819,7 @@ class Inferencer:
             domain_name=domain_name,
             tasks_per_run=tasks_per_run,
             episodes_per_task=episodes_per_task,
+            statistics_domain=statistics_domain,
         )
 
     def rollout(
@@ -870,6 +829,7 @@ class Inferencer:
         domain_name="agibotworld",
         tasks_per_run=None,
         episodes_per_task=1,
+        statistics_domain=None,
     ):
         if rollout_steps <= 0:
             raise ValueError("rollout_steps must be > 0 when calling rollout()")
@@ -942,6 +902,8 @@ class Inferencer:
             requested_step = 0
             occlusion_marks_all = []
 
+            prev_start_index = None
+
             for chunk_idx in range(total_chunks):
                 if collected_steps >= rollout_steps:
                     break
@@ -950,8 +912,22 @@ class Inferencer:
                 step_data = dataset.get_step_data(
                     dataset.fix_epiidx,
                     requested_step,
-                    rollout_horizon=remaining,
+                    rollout_horizon=chunk_size,
                 )
+
+                # If the dataset can no longer advance the starting index (e.g., because we are
+                # too close to the end of the episode and indices are being clipped), then
+                # continuing would just repeat (or even go backwards in) time. In that case,
+                # we stop rollout early instead of automatically repeating the last segment.
+                current_start_index = int(step_data.get("start_index", requested_step))
+                if prev_start_index is not None and current_start_index <= prev_start_index:
+                    print(
+                        f"[DEBUG rollout] Detected non-increasing start_index "
+                        f"(prev={prev_start_index}, current={current_start_index}); "
+                        f"stopping rollout early to avoid repeating tail."
+                    )
+                    break
+                prev_start_index = current_start_index
 
                 video = step_data["video"].unsqueeze(0)
                 actions_tensor = step_data["actions"].unsqueeze(0)
@@ -1046,7 +1022,7 @@ class Inferencer:
                     "state": state_tensor,
                 }
                 pd_actions_arr, gt_actions_arr = self._denormalize_actions(
-                    fake_batch, preds['action'][0], domain_name, action_type, action_space
+                    fake_batch, preds['action'][0], domain_name, action_type, action_space, statistics_domain
                 )
 
                 take = min(remaining, pd_actions_arr.shape[0])

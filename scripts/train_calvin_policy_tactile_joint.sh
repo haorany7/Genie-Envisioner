@@ -1,7 +1,7 @@
 #!/bin/bash
-#SBATCH --job-name="calvin_tactile_eef_zscore_abs_action_chunk_27_add_state"
-#SBATCH --output="/work/hdd/bche/haorany7/WORLD-MODEL-TOUCH/slurm_outputs/calvin_tactile_eef_zscore_abs_action_chunk_27_add_state/slurm-%j.out"
-#SBATCH --error="/work/hdd/bche/haorany7/WORLD-MODEL-TOUCH/slurm_outputs/calvin_tactile_eef_zscore_abs_action_chunk_27_add_state/slurm-%j.err"
+#SBATCH --job-name="calvin_tactile_joint_minmax_action_chunk_27_add_state"
+#SBATCH --output="/work/hdd/bche/haorany7/WORLD-MODEL-TOUCH/slurm_outputs/calvin_tactile_joint_minmax_action_chunk_27_add_state/slurm-%j.out"
+#SBATCH --error="/work/hdd/bche/haorany7/WORLD-MODEL-TOUCH/slurm_outputs/calvin_tactile_joint_minmax_action_chunk_27_add_state/slurm-%j.err"
 #SBATCH --partition=gpuA100x4
 #SBATCH --nodes=1
 #SBATCH --mem=128G
@@ -18,7 +18,7 @@
 # ============================================================================
 # 📌 Environment Setup
 # ============================================================================
-echo "🚀 Starting CALVIN Tactile EEF Z-Score Absolute Policy Training (Action Chunk 27 + Add State) at $(date)"
+echo "🚀 Starting CALVIN Tactile Joint MinMax Policy Training (Action Chunk 27 + Add State) at $(date)"
 echo "============================================================================"
 echo "📍 Job ID: $SLURM_JOB_ID"
 echo "📍 Node: $SLURM_NODELIST"
@@ -41,7 +41,7 @@ PROJ_ROOT="/projects/behe/haorany7/WORLD-MODEL-TOUCH/WM-Touch-Evaluation/GE-offi
 SCRIPT_DIR="${PROJ_ROOT}/scripts"
 
 MAIN_PY="${PROJ_ROOT}/main.py"
-CONFIG_FILE="${PROJ_ROOT}/configs/ltx_model/policy_model_calvin_tactile_eef_zscore_absolute.yaml"
+CONFIG_FILE="${PROJ_ROOT}/configs/ltx_model/policy_model_calvin_tactile_joint.yaml"
 
 echo "📂 Project root   : ${PROJ_ROOT}"
 echo "📄 Main script    : ${MAIN_PY}"
@@ -79,7 +79,7 @@ if [ -z "$CUDA_VISIBLE_DEVICES" ] && [ "$NGPU" -gt 0 ]; then
 fi
 
 # Create slurm output directory if it doesn't exist
-SLURM_OUT_DIR="/work/hdd/bche/haorany7/WORLD-MODEL-TOUCH/slurm_outputs/calvin_tactile_eef_zscore_abs_action_chunk_27_add_state"
+SLURM_OUT_DIR="/work/hdd/bche/haorany7/WORLD-MODEL-TOUCH/slurm_outputs/calvin_tactile_joint_minmax_action_chunk_27_add_state"
 mkdir -p "${SLURM_OUT_DIR}"
 
 echo "============================================================================"
@@ -102,3 +102,5 @@ echo "==========================================================================
 echo "✅ Training launched. Check logs and checkpoints under the configured output_dir."
 echo "✅ Training completed at $(date)"
 echo "============================================================================"
+
+

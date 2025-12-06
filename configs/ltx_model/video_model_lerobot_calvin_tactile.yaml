@@ -1,10 +1,10 @@
-model_name: 'ltx_policy_calvin_tactile_joint_abs_minmax_action_chunk_27_add_state'
+model_name: 'ltx_video_calvin_tactile_action_chunk_27'
 is_i2v: True
 report_to: wandb
-tracker_name: ltx_policy_calvin_tactile_joint_abs_minmax_action_chunk_27_add_state
+tracker_name: ltx_video_calvin_tactile_action_chunk_27
 
-logging_dir: logs/calvin_tactile_joint_abs_minmax_policy_action_chunk_27_add_state
-output_dir: /projects/behe/haorany7/WORLD-MODEL-TOUCH/outputs/calvin_tactile_joint_abs_minmax_policy_action_chunk_27_add_state
+logging_dir: logs/calvin_tactile_video_action_chunk_27
+output_dir: /work/hdd/bche/haorany7/WORLD-MODEL-TOUCH/outputs/calvin_tactile_video_action_chunk_27
 pretrained_model_name_or_path: /projects/behe/haorany7/WORLD-MODEL-TOUCH/pretrained_models/ltx_video
 
 ###
@@ -29,20 +29,20 @@ pipeline_class_path: models/pipeline/custom_pipeline.py
 pipeline_class: CustomPipeline
 
 # 
-return_action: true
+return_action: false
 return_video: true
-train_mode: 'action_only'
+train_mode: 'video_only'
 action_loss_scale: 1.0
 
 # total training step is decided by the minimum of the below two
-train_steps: 20000
-train_epochs: 2000
-steps_to_save: 1000
-steps_to_log: 20
-steps_to_val: 500
+train_steps: 40100
+train_epochs: 4000
+steps_to_save: 2000
+steps_to_log: 2000
+steps_to_val: 2000
 
 mixed_precision: bf16
-allow_tf32: True
+allow_tf32: False
 
 # timeout, seconds
 nccl_timeout: 600
@@ -52,12 +52,12 @@ seed: 42
 enable_slicing: True
 enable_tiling: True
 
-add_state: True ### whether add state to the action chunk
+add_state: False ### whether add state to the action chunk
 
 caption_dropout_p: 0.06
 
 # dataloader
-batch_size: 8
+batch_size: 16
 dataloader_num_workers: 8
 pin_memory: True
 
@@ -66,7 +66,7 @@ noise_to_first_frame: 0.1
 
 # Optimizer Config
 optimizer: adamw
-lr: 3e-4
+lr: 5e-5
 beta1: 0.9
 beta2: 0.95
 beta3: 0.999
@@ -80,7 +80,7 @@ max_grad_norm: 1.0
 gradient_accumulation_steps: 1
 
 # lr_scheduler Config
-lr_scheduler: cosine
+lr_scheduler: constant_with_warmup
 lr_warmup_steps: 1000
 lr_num_cycles: 1
 lr_power: 1.0
@@ -95,8 +95,7 @@ flow_mode_scale: 1.29
 pixel_wise_timestep: True
 
 diffusion_model:
-  model_path: /work/hdd/bche/haorany7/WORLD-MODEL-TOUCH/outputs/calvin_tactile_video_action_chunk_27/2025_12_04_17_31_30/step_10000/diffusion_pytorch_model.safetensors
-  # Previous checkpoint (action_chunk=9): /work/hdd/bche/haorany7/WORLD-MODEL-TOUCH/ckpt_from_zzy/calvin_with_tactile_policy_50k_action_trunk_9/diffusion_pytorch_model_tactile_action_trunk_9_50k.safetensors
+  model_path: /projects/behe/haorany7/WORLD-MODEL-TOUCH/pretrained_models/genie_envisioner/GE_base_fast_v0.1.safetensors
   config:
     activation_fn: gelu-approximate
     attention_bias: true
@@ -113,16 +112,16 @@ diffusion_model:
     patch_size: 1
     patch_size_t: 1
     qk_norm: rms_norm_across_heads
-    action_expert: true
-    action_in_channels: 8
+    action_expert: false
+    action_in_channels: 14
     action_num_attention_heads: 16
     action_attention_head_dim: 32
 
 data:
 ### more details can be found in data/utils/*_dataset.py
   train:
-    data_roots: ["/work/hdd/behe/calvin"]
-    domains: ["ABC_lerobot_joint_action"]
+    data_roots: ["/work/hdd/behe/calvin/ABC_lerobot"]
+    domains: ["rotate_blue_block_right"]
     sample_size: [192, 256]
     sample_n_frames: 65
     preprocess :  'resize'
@@ -132,15 +131,15 @@ data:
     n_previous: 4
     previous_pick_mode: 'random'
     random_crop: False
-    dataset_info_cache_path: "/projects/behe/haorany7/WORLD-MODEL-TOUCH/cache/calvin_policy_tactile_joint_action_chunk_27/train_dataset_info.json"
+    dataset_info_cache_path: "/projects/behe/haorany7/WORLD-MODEL-TOUCH/cache/calvin_video_tactile_action_chunk_27/train_dataset_info.json"
     action_type: "absolute"
-    action_space: "joint"
-    action_abs_norm: "minmax"
+    action_space: "eef"
+    action_abs_norm: "zscore"
+    statistics_domain: "ABC_lerobot"
     is_calvin: true
-    statistics_domain: "ABC_lerobot_joint_action"
   val:
-    data_roots: ["/work/hdd/behe/calvin"]
-    domains: ["D_lerobot_joint_action"]
+    data_roots: ["/work/hdd/behe/calvin/D_lerobot"]
+    domains: ["rotate_blue_block_right"]
     sample_size: [192, 256]
     sample_n_frames: 65
     preprocess :  'resize'
@@ -150,15 +149,16 @@ data:
     n_previous: 4
     previous_pick_mode: 'random'
     random_crop: False
-    dataset_info_cache_path: "/projects/behe/haorany7/WORLD-MODEL-TOUCH/cache/calvin_policy_tactile_joint_action_chunk_27/val_dataset_info.json"
+    dataset_info_cache_path: "/projects/behe/haorany7/WORLD-MODEL-TOUCH/cache/calvin_video_tactile_action_chunk_27/val_dataset_info.json"
     action_type: "absolute"
-    action_space: "joint"
-    action_abs_norm: "minmax"
+    action_space: "eef"
+    action_abs_norm: "zscore"
+    statistics_domain: "ABC_lerobot"
     is_calvin: true
-    statistics_domain: "ABC_lerobot_joint_action"
+
 
 use_color_jitter: true
-num_inference_step: 20
+num_inference_step: 5
 noisy_video: true
 
 # false for quick debug, for training set True

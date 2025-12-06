@@ -5,7 +5,7 @@ echo "main.py: ${script_path}"
 
 config_path=${2:-/projects/behe/haorany7/WORLD-MODEL-TOUCH/WM-Touch-Evaluation/GE-official/Genie-Envisioner/configs/ltx_model/policy_model_calvin_tactile_joint.yaml}
 echo "config : ${config_path}"
-ckp_path=${3:-/work/hdd/bche/haorany7/WORLD-MODEL-TOUCH/outputs/calvin_ABC_all_tasks_midfusion_policy_joint_absolute_minmax/2025_11_23_19_21_34/step_8000/diffusion_pytorch_model.safetensors}
+ckp_path=${3:-/work/hdd/bche/haorany7/WORLD-MODEL-TOUCH/ckpt_from_zzy/calvin_with_tactile_policy_50k_action_trunk_9/diffusion_pytorch_model_tactile_action_trunk_9_50k.safetensors}
 echo "ckpt   : ${ckp_path}"
 
 DEFAULT_WORK_ROOT="/work/hdd/bche/haorany7/WORLD-MODEL-TOUCH"
@@ -13,13 +13,15 @@ WORK_ROOT="${WM_WORK_ROOT:-${DEFAULT_WORK_ROOT}}"
 
 output_path=${4:-${WORK_ROOT}/outputs/calvin_policy_tactile_joint_infer/$(date +%Y%m%d_%H%M%S)}
 domain_name=${5:-D_lerobot_joint_action}
-n_validation=${6:-34}
-n_chunk_action=${7:-9}
-tasks_per_run=${8:-34}
-episodes_per_task=${9:-1}
-rollout_steps=${10:-65}
+statistics_domain=${6:-ABC_lerobot_joint_action}
+n_validation=${7:-34}
+n_chunk_action=${8:-9}
+tasks_per_run=${9:-34}
+episodes_per_task=${10:-1}
+rollout_steps=${11:-52}
 echo "output : ${output_path}"
 echo "domain : ${domain_name}"
+echo "stat_dom: ${statistics_domain}"
 echo "n_val  : ${n_validation}"
 echo "n_chunk: ${n_chunk_action}"
 echo "tasks  : ${tasks_per_run}"
@@ -42,6 +44,7 @@ torchrun --nnodes=1 \
     --n_validation $n_validation \
     --n_chunk_action $n_chunk_action \
     --domain_name $domain_name \
+    --statistics_domain $statistics_domain \
     --tasks_per_run $tasks_per_run \
     --episodes_per_task $episodes_per_task \
     --rollout_steps $rollout_steps
