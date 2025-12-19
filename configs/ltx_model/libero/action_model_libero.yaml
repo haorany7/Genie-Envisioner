@@ -3,9 +3,9 @@ is_i2v: True
 report_to: None
 tracker_name: ltx_trainer
 
-logging_dir: logs
-output_dir: PATH_TO_SAVE_LOGS_AND_CHECKPOINTS
-pretrained_model_name_or_path: PATH_TO_PRETRAINED_WEIGHTS_OF_VAE_AND_TOKENIZER
+logging_dir: logs/libero_lerobot_action
+output_dir: /work/hdd/behe/libeo_lerobot/outputs/libero_action
+pretrained_model_name_or_path: /projects/behe/haorany7/WORLD-MODEL-TOUCH/pretrained_models/genie_envisioner
 
 
 ###
@@ -97,7 +97,7 @@ flow_mode_scale: 1.29
 pixel_wise_timestep: True
 
 diffusion_model:
-  model_path: PATH/TO/GE_ACT/TRAINED_ON_LIBERO_DATASET.SAFETENSOR
+  model_path: /work/hdd/bche/haorany7/WORLD-MODEL-TOUCH/outputs/libero_video_action_chunk_36/2025_12_10_05_06_10/step_14000/diffusion_pytorch_model.safetensors
   config:
     activation_fn: gelu-approximate
     attention_bias: true
@@ -124,8 +124,8 @@ diffusion_model:
 
 data:
   train:
-    data_roots: ["path/to/single_split_libero_dataset"]
-    domains: ["libero"]
+    data_roots: ["/work/hdd/behe/libeo_lerobot"]
+    domains: ["libero_lerobot"]
     sample_size: [256, 256]
     sample_n_frames: 500
     preprocess :  'resize'
@@ -143,8 +143,8 @@ data:
     action_key: actions
     extra_parquet_index: False
   val:
-    data_roots: ["path/to/single_split_libero_dataset"]
-    domains: ["libero"]
+    data_roots: ["/work/hdd/behe/libeo_lerobot"]
+    domains: ["libero_lerobot"]
     sample_size: [256, 256]
     sample_n_frames: 500
     preprocess :  'resize'

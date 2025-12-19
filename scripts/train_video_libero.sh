@@ -41,7 +41,7 @@ PROJ_ROOT="/projects/behe/haorany7/WORLD-MODEL-TOUCH/WM-Touch-Evaluation/GE-offi
 SCRIPT_DIR="${PROJ_ROOT}/scripts"
 
 MAIN_PY="${PROJ_ROOT}/main.py"
-CONFIG_FILE="${PROJ_ROOT}/configs/ltx_model/video_model_lerobot_libero.yaml"
+CONFIG_FILE="${PROJ_ROOT}/configs/ltx_model/libero/video_model_libero.yaml"
 
 echo "📂 Project root   : ${PROJ_ROOT}"
 echo "📄 Main script    : ${MAIN_PY}"
@@ -98,9 +98,7 @@ torchrun --nnodes=1 \
   --config_file "${CONFIG_FILE}" \
   --runner_class_path runner/ge_trainer.py \
   --runner_class Trainer \
-  --mode train \
-  --resume \
-  --sub_folder "2025_12_10_05_06_10"
+  --mode train
 
 echo "============================================================================"
 echo "✅ Libero video training launched. Check logs and checkpoints under the configured output_dir."

@@ -8,8 +8,8 @@ import argparse
 
 def load_data(data_path, key="action"):
     data = pd.read_parquet(data_path)
-    data = np.stack([data[key][i] for i in range(data[key].shape[0])])
-    # data = np.stack([data[key][i][0] for i in range(data[key].shape[0])])
+    # Use numpy view to avoid relying on a possibly non-contiguous index.
+    data = np.stack(data[key].to_numpy())
     return data 
 
 
