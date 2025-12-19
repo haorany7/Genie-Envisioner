@@ -1,7 +1,7 @@
 #!/bin/bash
-#SBATCH --job-name="calvin_tactile_eef_zscore_abs_ac27_add_state"
-#SBATCH --output="/work/hdd/bche/haorany7/WORLD-MODEL-TOUCH/slurm_outputs/calvin_tactile_eef_zscore_abs_action_chunk_27_add_state/slurm-%j.out"
-#SBATCH --error="/work/hdd/bche/haorany7/WORLD-MODEL-TOUCH/slurm_outputs/calvin_tactile_eef_zscore_abs_action_chunk_27_add_state/slurm-%j.err"
+#SBATCH --job-name="libero_video_action_chunk_36"
+#SBATCH --output="/work/hdd/bche/haorany7/WORLD-MODEL-TOUCH/slurm_outputs/libero_video_action_chunk_36/slurm-%j.out"
+#SBATCH --error="/work/hdd/bche/haorany7/WORLD-MODEL-TOUCH/slurm_outputs/libero_video_action_chunk_36/slurm-%j.err"
 #SBATCH --partition=gpuA100x4
 #SBATCH --nodes=1
 #SBATCH --mem=128G
@@ -18,7 +18,7 @@
 # ============================================================================
 # 📌 Environment Setup
 # ============================================================================
-echo "🚀 Starting CALVIN Tactile EEF Z-Score Absolute Policy Training (Action Chunk 27, Add State=True) at $(date)"
+echo "🚀 Starting Libero Video Training (Action Chunk 36) at $(date)"
 echo "============================================================================"
 echo "📍 Job ID: $SLURM_JOB_ID"
 echo "📍 Node: $SLURM_NODELIST"
@@ -34,14 +34,14 @@ else
   echo "❌ ERROR: conda.sh not found. Please update the path in the script." >&2
   exit 1
 fi
-  conda activate genie_envisioner
+conda activate genie_envisioner
 
 # Paths (avoid relying on BASH_SOURCE which changes under SLURM spool directories)
 PROJ_ROOT="/projects/behe/haorany7/WORLD-MODEL-TOUCH/WM-Touch-Evaluation/GE-official/Genie-Envisioner"
 SCRIPT_DIR="${PROJ_ROOT}/scripts"
 
 MAIN_PY="${PROJ_ROOT}/main.py"
-CONFIG_FILE="${PROJ_ROOT}/configs/ltx_model/policy_model_calvin_tactile_eef_zscore_absolute.yaml"
+CONFIG_FILE="${PROJ_ROOT}/configs/ltx_model/video_model_lerobot_libero.yaml"
 
 echo "📂 Project root   : ${PROJ_ROOT}"
 echo "📄 Main script    : ${MAIN_PY}"
@@ -79,16 +79,18 @@ if [ -z "$CUDA_VISIBLE_DEVICES" ] && [ "$NGPU" -gt 0 ]; then
 fi
 
 # Create slurm output directory if it doesn't exist
-SLURM_OUT_DIR="/work/hdd/bche/haorany7/WORLD-MODEL-TOUCH/slurm_outputs/calvin_tactile_eef_zscore_abs_action_chunk_27_add_state"
+SLURM_OUT_DIR="/work/hdd/bche/haorany7/WORLD-MODEL-TOUCH/slurm_outputs/libero_video_action_chunk_36"
 mkdir -p "${SLURM_OUT_DIR}"
 
 echo "============================================================================"
-echo "🔥 Launching training on ${NGPU} GPU(s)..."
+echo "🔥 Launching Libero video training on ${NGPU} GPU(s)..."
 echo "============================================================================"
 
 # Navigate to project root to ensure imports work correctly
 cd "${PROJ_ROOT}"
 
+# Add --resume flag to automatically resume from latest checkpoint if it exists
+# Use --sub_folder to continue from a specific timestamped directory
 torchrun --nnodes=1 \
   --nproc_per_node="${NGPU}" \
   --node_rank=0 \
@@ -96,9 +98,13 @@ torchrun --nnodes=1 \
   --config_file "${CONFIG_FILE}" \
   --runner_class_path runner/ge_trainer.py \
   --runner_class Trainer \
-  --mode train
+  --mode train \
+  --resume \
+  --sub_folder "2025_12_10_05_06_10"
 
 echo "============================================================================"
-echo "✅ Training launched. Check logs and checkpoints under the configured output_dir."
-echo "✅ Training completed at $(date)"
+echo "✅ Libero video training launched. Check logs and checkpoints under the configured output_dir."
+echo "✅ Libero video training completed at $(date)"
 echo "============================================================================"
+
+

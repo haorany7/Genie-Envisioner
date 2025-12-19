@@ -22,6 +22,17 @@ from copy import deepcopy
 import transformers
 import logging
 
+# Fix for PyTorch 2.6+ weights_only security: allow DeepSpeed-related classes/functions
+try:
+    from deepspeed.runtime.fp16.loss_scaler import LossScaler
+    from deepspeed.runtime.zero.config import ZeroStageEnum
+    from deepspeed.utils.tensor_fragment import fragment_address
+
+    torch.serialization.add_safe_globals([LossScaler, ZeroStageEnum, fragment_address])
+except (ImportError, AttributeError):
+    # If deepspeed is not available or torch version < 2.6, skip
+    pass
+
 # ----------------------------------------------------
 import diffusers
 from diffusers.optimization import get_scheduler
@@ -51,12 +62,117 @@ from utils.memory_utils import get_memory_statistics, free_memory
 # ----------------------------------------------------
 from torch.utils.tensorboard import SummaryWriter
 from utils import init_logging, import_custom_class, save_video
+from PIL import Image
+
+
+
+# Image saving disabled - not needed for training
+# def save_image(tensor, path):
+#     """
+#     Save a torch tensor as an image.
+#     Args:
+#         tensor: torch.Tensor of shape (b, c, t, h, w) or (b, c, h, w)
+#         path: str, path to save the image
+#     """
+#     # Take first batch and first time frame if applicable
+#     if tensor.dim() == 5:  # (b, c, t, h, w)
+#         img = tensor[0, :, 0, :, :]  # Take first batch, first frame
+#     elif tensor.dim() == 4:  # (b, c, h, w)
+#         img = tensor[0]  # Take first batch
+#     else:
+#         img = tensor
+#     
+#     # Convert to numpy and transpose to (h, w, c)
+#     img = img.detach().cpu().float()
+#     
+#     # Denormalize if needed (assuming normalized to [-1, 1] or [0, 1])
+#     if img.min() < 0:
+#         img = (img + 1.0) / 2.0  # [-1, 1] -> [0, 1]
+#     
+#     img = torch.clamp(img, 0, 1)
+#     img = (img * 255).numpy().astype(np.uint8)
+#     
+#     # Transpose from (c, h, w) to (h, w, c)
+#     if img.shape[0] in [1, 3, 4]:  # Channel dimension is first
+#         img = np.transpose(img, (1, 2, 0))
+#     
+#     # Handle grayscale
+#     if img.shape[-1] == 1:
+#         img = img.squeeze(-1)
+#     
+#     # Save using PIL
+#     Image.fromarray(img).save(path)
+
 
 # ----------------------------------------------------
 from utils.data_utils import get_latents, get_text_conditions, gen_noise_from_condition_frame_latent, randn_tensor, apply_color_jitter_to_video
 
 # ----------------------------------------------------
 from utils.extra_utils import act_metric
+
+LOG_LEVEL = "INFO"
+
+logger = get_logger(__name__, log_level=LOG_LEVEL)
+
+
+def get_latest_checkpoint(output_dir):
+    """Find the latest checkpoint in output_dir, similar to GR00T's implementation."""
+    if not os.path.exists(output_dir):
+        return None
+    
+    checkpoint_dirs = []
+    for entry in os.listdir(output_dir):
+        if entry.startswith("step_"):
+            step_dir = os.path.join(output_dir, entry)
+            if os.path.isdir(step_dir):
+                try:
+                    step_num = int(entry.split("_")[1])
+                    checkpoint_dirs.append((step_num, step_dir))
+                except (IndexError, ValueError):
+                    continue
+    
+    if not checkpoint_dirs:
+        return None
+    
+    # Return the directory with the highest step number
+    checkpoint_dirs.sort(key=lambda x: x[0], reverse=True)
+    latest_ckpt = checkpoint_dirs[0][1]
+    logger.info(f"Found latest checkpoint: {latest_ckpt}")
+    return latest_ckpt
+
+
+def cleanup_old_checkpoints(output_dir, keep_last_n=4):
+    """Remove old checkpoints, keeping only the last N checkpoints (similar to GR00T's save_total_limit=5)."""
+    if not os.path.exists(output_dir):
+        return
+    
+    checkpoint_dirs = []
+    for entry in os.listdir(output_dir):
+        if entry.startswith("step_"):
+            step_dir = os.path.join(output_dir, entry)
+            if os.path.isdir(step_dir):
+                try:
+                    step_num = int(entry.split("_")[1])
+                    checkpoint_dirs.append((step_num, step_dir, entry))
+                except (IndexError, ValueError):
+                    continue
+    
+    if len(checkpoint_dirs) <= keep_last_n:
+        return
+    
+    # Sort by step number (ascending)
+    checkpoint_dirs.sort(key=lambda x: x[0])
+    
+    # Remove the oldest checkpoints
+    checkpoints_to_remove = checkpoint_dirs[:-keep_last_n]
+    for step_num, ckpt_path, entry_name in checkpoints_to_remove:
+        try:
+            import shutil
+            shutil.rmtree(ckpt_path)
+            logger.info(f"Removed old checkpoint: {entry_name} (step {step_num})")
+        except Exception as e:
+            logger.warning(f"Failed to remove checkpoint {entry_name}: {e}")
+
 
 LOG_LEVEL = "INFO"
 # LOG_LEVEL = "DEBUG"
@@ -87,7 +203,7 @@ class State:
 
 class Trainer:
 
-    def __init__(self, config_file, to_log=True, output_dir=None) -> None:
+    def __init__(self, config_file, to_log=True, output_dir=None, resume=False, sub_folder=None) -> None:
         
         cd = load(open(config_file, "r"), Loader=Loader)
         args = argparse.Namespace(**cd)
@@ -96,9 +212,15 @@ class Trainer:
         args.weight_decay = float(args.weight_decay)
 
         self.args = args
+        self.resume = resume
+        self.sub_folder = sub_folder
 
         if output_dir is not None:
             self.args.output_dir = output_dir
+        
+        # If sub_folder is provided, update output_dir to include it
+        if self.sub_folder is not None:
+            self.args.sub_folder = self.sub_folder
 
         if self.args.load_weights == False:
             print('You are not loading the pretrained weights, please check the code.')
@@ -121,9 +243,16 @@ class Trainer:
         start_time = current_time.strftime("%Y_%m_%d_%H_%M_%S")
         if self.state.accelerator.is_main_process:
 
-            self.save_folder = os.path.join(self.args.output_dir, start_time)
-            if getattr(self.args, "sub_folder", False):
+            # If resuming and no explicit sub_folder, use output_dir directly (no timestamp subdir)
+            if self.resume and not getattr(self.args, "sub_folder", False):
+                self.save_folder = self.args.output_dir
+                logger.info(f"Resume mode: using output_dir directly without timestamp: {self.save_folder}")
+            elif getattr(self.args, "sub_folder", False):
                 self.save_folder = os.path.join(self.args.output_dir, self.args.sub_folder)
+            else:
+                # Normal mode: create timestamp subfolder
+                self.save_folder = os.path.join(self.args.output_dir, start_time)
+            
             os.makedirs(self.save_folder, exist_ok=True)
 
             args_dict = vars(deepcopy(self.args))
@@ -137,7 +266,7 @@ class Trainer:
             else:
                 self.writer = None
 
-            save_folder_bytes = self.save_folder.encode()
+            save_folder_bytes = str(self.save_folder).encode()
             folder_len_tensor = torch.tensor([len(save_folder_bytes)], device=self.state.accelerator.device)
             dist.broadcast(folder_len_tensor, src=0)
             folder_tensor = torch.ByteTensor(list(save_folder_bytes)).to(self.state.accelerator.device)
@@ -494,6 +623,53 @@ class Trainer:
         global_step = 0
         first_epoch = 0
         initial_global_step = 0
+        
+        # Resume from checkpoint if requested
+        resume_checkpoint_path = None
+        if self.resume:
+            # Use self.save_folder (which includes sub_folder if set) instead of self.args.output_dir
+            search_dir = self.save_folder
+            logger.info(f"🔍 Searching for checkpoints in: {search_dir}")
+            resume_checkpoint_path = get_latest_checkpoint(search_dir)
+            if resume_checkpoint_path is None:
+                # Check if this is truly an empty output_dir or if checkpoints were deleted
+                if os.path.exists(search_dir) and os.listdir(search_dir):
+                    # Directory exists and has files, but no valid checkpoints
+                    error_msg = (
+                        f"❌ ERROR: --resume flag is set but no valid checkpoint (step_*) found in {search_dir}\n"
+                        f"Directory exists but contains: {os.listdir(search_dir)[:5]}\n"
+                        f"Please either:\n"
+                        f"  1. Remove --resume flag to train from scratch, or\n"
+                        f"  2. Ensure valid checkpoint exists (step_XXXX/), or\n"
+                        f"  3. Clean the directory if you want to start fresh with --resume"
+                    )
+                    logger.error(error_msg)
+                    raise FileNotFoundError(error_msg)
+                else:
+                    # Directory is empty or doesn't exist: this is the first run with --resume
+                    logger.warning(f"⚠️  --resume is set, but {search_dir} is empty.")
+                    logger.warning(f"🆕 Treating this as the first training run. Will save checkpoints directly to output_dir.")
+                    logger.warning(f"💡 Future runs with --resume will automatically continue from the latest checkpoint.")
+                    # Continue as normal, will start from step 0
+            else:
+                logger.info(f"✅ Resuming training from checkpoint: {resume_checkpoint_path}")
+                # Load the checkpoint
+                try:
+                    self.state.accelerator.load_state(resume_checkpoint_path)
+                    # Extract step number from path (e.g., "step_10000")
+                    step_str = os.path.basename(resume_checkpoint_path)
+                    if step_str.startswith("step_"):
+                        global_step = int(step_str.split("_")[1])
+                        initial_global_step = global_step
+                        logger.info(f"✅ Resumed from global_step {global_step}")
+                except Exception as e:
+                    error_msg = f"❌ ERROR: Failed to load checkpoint from {resume_checkpoint_path}: {e}"
+                    logger.error(error_msg)
+                    raise RuntimeError(error_msg)
+        else:
+            # Not resuming: train from scratch using pretrained weights
+            logger.info("🆕 Starting training from scratch (using pretrained weights from config)")
+        
         progress_bar = tqdm(
             range(0, self.state.train_steps),
             initial=initial_global_step,
@@ -516,9 +692,19 @@ class Trainer:
             logger.debug(f"Starting epoch ({epoch + 1}/{self.state.train_epochs})")
 
             self.diffusion_model.train()
+            
+            # Skip already-processed batches when resuming
+            train_dataloader = self.train_dataloader
+            if epoch == first_epoch and initial_global_step > 0:
+                # Calculate how many batches to skip in this epoch
+                batches_per_epoch = len(self.train_dataloader)
+                skip_batches = initial_global_step % batches_per_epoch
+                if skip_batches > 0:
+                    logger.info(f"⏩ Skipping first {skip_batches} batches in epoch {epoch} (already processed)")
+                    train_dataloader = accelerator.skip_first_batches(self.train_dataloader, skip_batches)
 
             running_loss = 0.0
-            for step, batch in enumerate(self.train_dataloader):
+            for step, batch in enumerate(train_dataloader):
                 logger.debug(f"Starting step {step + 1}")
                 logs = {}
                 with accelerator.accumulate([ self.diffusion_model ]):
@@ -734,6 +920,13 @@ class Trainer:
                 
                 if global_step % self.args.steps_to_save == 0:
                     accelerator.wait_for_everyone()
+                    
+                    # Save full training state for resume (includes optimizer, scheduler, RNG, etc.)
+                    checkpoint_dir = os.path.join(self.save_folder, f'step_{global_step}')
+                    accelerator.save_state(checkpoint_dir)
+                    logger.info(f"💾 Saved full training state to {checkpoint_dir}")
+                    
+                    # Also save just the model weights for easy inference
                     if accelerator.is_main_process:
                         model_to_save = unwrap_model(accelerator, self.diffusion_model)
                         dtype = (
@@ -743,10 +936,14 @@ class Trainer:
                             if self.args.mixed_precision == "bf16"
                             else torch.float32
                         )
-
-                        model_save_dir = os.path.join(self.save_folder,f'step_{global_step}')
-                        model_to_save.save_pretrained(model_save_dir, safe_serialization=True)
-                        del  model_to_save
+                        
+                        # Save model weights in the same directory
+                        model_to_save.save_pretrained(checkpoint_dir, safe_serialization=True)
+                        logger.info(f"💾 Saved model weights to {checkpoint_dir}/diffusion_pytorch_model.safetensors")
+                        del model_to_save
+                        
+                        # Clean up old checkpoints, keep only the last 4
+                        cleanup_old_checkpoints(self.save_folder, keep_last_n=4)
                         
             memory_statistics = get_memory_statistics()
             logger.info(f"Memory after epoch {epoch + 1}: {json.dumps(memory_statistics, indent=4)}")
@@ -807,7 +1004,17 @@ class Trainer:
             history_action_state = batch['state'][:batch_size]
         else:
             history_action_state = None
-
+        # Image saving disabled - not needed for training
+        # try:
+        #     save_image(image, f'{model_save_dir}/image_{global_step}.png')
+        #     print(f"[DEBUG validate] Saved image to {model_save_dir}/image_{global_step}.png")
+        # except OSError as e:
+        #     if e.errno == 122:  # Disk quota exceeded
+        #         print(f"[WARN validate] Skipping image save due to disk quota exceeded")
+        #     else:
+        #         print(f"[WARN validate] Failed to save image: {e}")
+        # except Exception as e:
+        #     print(f"[WARN validate] Failed to save image: {e}")
         preds = pipe.infer(
             image=image,
             prompt=prompt[:batch_size],

@@ -206,7 +206,17 @@ class CustomLeRobotDataset(Dataset):
                     zero_rank_print(f"parquet file not found: {episode_index}")
                     continue
 
-                video_path = os.path.join(video_folder, f"chunk-{episode_chunk:03d}", "{}", f"episode_{episode_index:06d}.mp4")
+                # Libero dataset: videos/observation.images.image/episode_XXXXXX.mp4 (no chunk subdir)
+                # CALVIN/others: videos/chunk-NNN/observation.images.*/episode_XXXXXX.mp4
+                # Check if chunk-based structure exists for this video
+                test_chunk_video_dir = os.path.join(video_folder, f"chunk-{episode_chunk:03d}")
+                if os.path.isdir(test_chunk_video_dir):
+                    # Use chunk-based path
+                    video_path = os.path.join(video_folder, f"chunk-{episode_chunk:03d}", "{}", f"episode_{episode_index:06d}.mp4")
+                else:
+                    # Use flat structure (Libero style)
+                    video_path = os.path.join(video_folder, "{}", f"episode_{episode_index:06d}.mp4")
+                
                 domain_id = DomainTable.get(domain_key, -1)
 
                 info = [
@@ -660,6 +670,32 @@ class CustomLeRobotDataset(Dataset):
                     joints = state[..., 7:14]      # joint positions (7 dims)
                     gripper = state[..., 14:]      # gripper action (last dim)
                     state = np.concatenate([joints, gripper], axis=-1)
+
+        # ------------------------------------------------------------------
+        # Libero EEF state alignment:
+        # Libero state is 8D:
+        #   [x, y, z, roll, pitch, yaw, finger_left, finger_right]
+        # Libero action is 7D:
+        #   [x, y, z, roll, pitch, yaw, gripper_cmd]
+        #
+        # 为了在 add_state 情况下让 state 语义与 EEF action 对齐，我们将最后两维
+        # finger positions 合成为一个 “gripper state”：
+        #   gripper_state = finger_left - finger_right
+        #
+        # 得到 7D 的 EEF-style state:
+        #   [x, y, z, roll, pitch, yaw, gripper_state]
+        #
+        # 注意：statistics.py 中的 `libero-hfvla_state_eef` 也已更新为 7 维统计。
+        # ------------------------------------------------------------------
+        is_libero_domain = (
+            getattr(self, "statistics_domain", None) == "libero-hfvla"
+            or domain_name == "libero-hfvla"
+        )
+        if is_libero_domain and self.action_space == "eef" and state.shape[-1] == 8:
+            pos_ori = state[..., :6]
+            # finger_left - finger_right -> 单一 gripper 尺度
+            grip = (state[..., 6:7] - state[..., 7:8])
+            state = np.concatenate([pos_ori, grip], axis=-1)
 
         # Convert state to 1 x C slice for history conditioning
         state = torch.FloatTensor(state)[indexes][self.n_previous-1:self.n_previous]

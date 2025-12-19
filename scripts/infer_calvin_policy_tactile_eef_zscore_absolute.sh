@@ -1,7 +1,7 @@
 #!/bin/bash
-#SBATCH --job-name="calvin_tactile_eef_zscore_abs"
-#SBATCH --output="/work/hdd/bche/haorany7/WORLD-MODEL-TOUCH/slurm_outputs/calvin_tactile_eef_zscore_abs/slurm-%j.out"
-#SBATCH --error="/work/hdd/bche/haorany7/WORLD-MODEL-TOUCH/slurm_outputs/calvin_tactile_eef_zscore_abs/slurm-%j.err"
+#SBATCH --job-name="calvin_tactile_eef_zscore_abs_infer_ac18"
+#SBATCH --output="/work/hdd/bche/haorany7/WORLD-MODEL-TOUCH/slurm_outputs/calvin_tactile_eef_zscore_abs_infer_ac18/slurm-%j.out"
+#SBATCH --error="/work/hdd/bche/haorany7/WORLD-MODEL-TOUCH/slurm_outputs/calvin_tactile_eef_zscore_abs_infer_ac18/slurm-%j.err"
 #SBATCH --partition=gpuA100x4
 #SBATCH --nodes=1
 #SBATCH --mem=128G

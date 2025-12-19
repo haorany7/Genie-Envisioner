@@ -13,6 +13,8 @@ def main():
     parser.add_argument('--runner_class_path', type=str, default="runner/ge_trainer.py")
     parser.add_argument('--runner_class', type=str, default="Trainer")
     parser.add_argument('--mode', type=str, default="train")
+    parser.add_argument('--resume', action='store_true', help='Resume training from the latest checkpoint in output_dir')
+    parser.add_argument('--sub_folder', type=str, default=None, help='Subdirectory under output_dir to save/load checkpoints (useful for continuing a previous run)')
     parser.add_argument('--checkpoint_path', type=str, default=None, help='Path to trained checkpoint, used in inference stage only')
     parser.add_argument('--n_validation', type=int, default=1, help='num of samples to predict, used in inference stage only')
     parser.add_argument('--n_chunk_action', type=int, default=1, help='num of action chunks to predict, used in action inference stage only')
@@ -43,7 +45,7 @@ def main():
 
     if args.mode == "train":
         ### Trainer
-        runner = Runner(args.config_file)
+        runner = Runner(args.config_file, resume=args.resume, sub_folder=args.sub_folder)
         runner.prepare_dataset()
         runner.prepare_models()
         runner.prepare_trainable_parameters()

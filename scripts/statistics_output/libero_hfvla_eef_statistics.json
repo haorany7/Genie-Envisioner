@@ -1,0 +1,129 @@
+Found 1693 parquet files under /work/hdd/bfxb/data/libero-hfvla/data
+Processed 50/1693 files, total_rows=13835, action_count_dim0=13835, state_count_dim0=13835
+Processed 100/1693 files, total_rows=27721, action_count_dim0=27721, state_count_dim0=27721
+Processed 150/1693 files, total_rows=40948, action_count_dim0=40948, state_count_dim0=40948
+Processed 200/1693 files, total_rows=54271, action_count_dim0=54271, state_count_dim0=54271
+Processed 250/1693 files, total_rows=67162, action_count_dim0=67162, state_count_dim0=67162
+Processed 300/1693 files, total_rows=80272, action_count_dim0=80272, state_count_dim0=80272
+Processed 350/1693 files, total_rows=93994, action_count_dim0=93994, state_count_dim0=93994
+Processed 400/1693 files, total_rows=104156, action_count_dim0=104156, state_count_dim0=104156
+Processed 450/1693 files, total_rows=110372, action_count_dim0=110372, state_count_dim0=110372
+Processed 500/1693 files, total_rows=116275, action_count_dim0=116275, state_count_dim0=116275
+Processed 550/1693 files, total_rows=122648, action_count_dim0=122648, state_count_dim0=122648
+Processed 600/1693 files, total_rows=128640, action_count_dim0=128640, state_count_dim0=128640
+Processed 650/1693 files, total_rows=134237, action_count_dim0=134237, state_count_dim0=134237
+Processed 700/1693 files, total_rows=140558, action_count_dim0=140558, state_count_dim0=140558
+Processed 750/1693 files, total_rows=146572, action_count_dim0=146572, state_count_dim0=146572
+Processed 800/1693 files, total_rows=152806, action_count_dim0=152806, state_count_dim0=152806
+Processed 850/1693 files, total_rows=159823, action_count_dim0=159823, state_count_dim0=159823
+Processed 900/1693 files, total_rows=167158, action_count_dim0=167158, state_count_dim0=167158
+Processed 950/1693 files, total_rows=174605, action_count_dim0=174605, state_count_dim0=174605
+Processed 1000/1693 files, total_rows=182005, action_count_dim0=182005, state_count_dim0=182005
+Processed 1050/1693 files, total_rows=189291, action_count_dim0=189291, state_count_dim0=189291
+Processed 1100/1693 files, total_rows=196697, action_count_dim0=196697, state_count_dim0=196697
+Processed 1150/1693 files, total_rows=204273, action_count_dim0=204273, state_count_dim0=204273
+Processed 1200/1693 files, total_rows=211612, action_count_dim0=211612, state_count_dim0=211612
+Processed 1250/1693 files, total_rows=218946, action_count_dim0=218946, state_count_dim0=218946
+Processed 1300/1693 files, total_rows=225169, action_count_dim0=225169, state_count_dim0=225169
+Processed 1350/1693 files, total_rows=231478, action_count_dim0=231478, state_count_dim0=231478
+Processed 1400/1693 files, total_rows=237603, action_count_dim0=237603, state_count_dim0=237603
+Processed 1450/1693 files, total_rows=243889, action_count_dim0=243889, state_count_dim0=243889
+Processed 1500/1693 files, total_rows=249951, action_count_dim0=249951, state_count_dim0=249951
+Processed 1550/1693 files, total_rows=256066, action_count_dim0=256066, state_count_dim0=256066
+Processed 1600/1693 files, total_rows=262126, action_count_dim0=262126, state_count_dim0=262126
+Processed 1650/1693 files, total_rows=268208, action_count_dim0=268208, state_count_dim0=268208
+
+=== Libero EEF action (7D) statistics ===
+mean: [0.0627815651213653, 0.08684081061004909, -0.09037305956292688, 0.0005407430027901323, 0.005643379534648268, -0.00522909827704012, -0.04964072184740278]
+std:  [0.3355237157076809, 0.37844699144089755, 0.4447285992446043, 0.039243540849307486, 0.06339296469695119, 0.0779702781939418, 0.9987671393945982]
+min:  [-0.9375, -0.9375, -0.9375, -0.2582142949104309, -0.375, -0.3675000071525574, -1.0]
+max:  [0.9375, 0.9375, 0.9375, 0.3557142913341522, 0.375, 0.375, 1.0]
+
+=== Libero EEF-style state (7D) statistics ===
+mean: [-0.04651878296410724, 0.034409066171901814, 0.7645525131792095, 2.9722095290211694, -0.22046978718823135, -0.12557940371042364, 0.05410503652058998]
+std:  [0.1049439546912153, 0.1517661945503825, 0.37851671516770574, 0.344273425695223, 0.9069468528665755, 0.32539190239883425, 0.027890435014399452]
+min:  [-0.4828203022480011, -0.3255046010017395, 0.008128180168569088, 0.35277295112609863, -3.641430377960205, -1.842738389968872, 0.0009171280544251204]
+max:  [0.21031762659549713, 0.39128610491752625, 1.3660105466842651, 3.6714255809783936, 3.560650587081909, 1.386339545249939, 0.08200234174728394]
+
+
+=== JSON snippet for `data/utils/statistics.py` ===
+{
+  "libero-hfvla_eef": {
+    "mean": [
+      0.0627815651213653,
+      0.08684081061004909,
+      -0.09037305956292688,
+      0.0005407430027901323,
+      0.005643379534648268,
+      -0.00522909827704012,
+      -0.04964072184740278
+    ],
+    "std": [
+      0.3355237157076809,
+      0.37844699144089755,
+      0.4447285992446043,
+      0.039243540849307486,
+      0.06339296469695119,
+      0.0779702781939418,
+      0.9987671393945982
+    ],
+    "min": [
+      -0.9375,
+      -0.9375,
+      -0.9375,
+      -0.2582142949104309,
+      -0.375,
+      -0.3675000071525574,
+      -1.0
+    ],
+    "max": [
+      0.9375,
+      0.9375,
+      0.9375,
+      0.3557142913341522,
+      0.375,
+      0.375,
+      1.0
+    ],
+    "normalize": "mean_std"
+  },
+  "libero-hfvla_state_eef": {
+    "mean": [
+      -0.04651878296410724,
+      0.034409066171901814,
+      0.7645525131792095,
+      2.9722095290211694,
+      -0.22046978718823135,
+      -0.12557940371042364,
+      0.05410503652058998
+    ],
+    "std": [
+      0.1049439546912153,
+      0.1517661945503825,
+      0.37851671516770574,
+      0.344273425695223,
+      0.9069468528665755,
+      0.32539190239883425,
+      0.027890435014399452
+    ],
+    "min": [
+      -0.4828203022480011,
+      -0.3255046010017395,
+      0.008128180168569088,
+      0.35277295112609863,
+      -3.641430377960205,
+      -1.842738389968872,
+      0.0009171280544251204
+    ],
+    "max": [
+      0.21031762659549713,
+      0.39128610491752625,
+      1.3660105466842651,
+      3.6714255809783936,
+      3.560650587081909,
+      1.386339545249939,
+      0.08200234174728394
+    ],
+    "normalize": "mean_std"
+  }
+}

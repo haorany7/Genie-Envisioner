@@ -35,8 +35,45 @@ from utils.model_utils import load_condition_models, load_latent_models, load_va
 from torch.utils.tensorboard import SummaryWriter
 from utils import init_logging, import_custom_class, save_video
 from utils.data_utils import get_latents, get_text_conditions, gen_noise_from_condition_frame_latent, randn_tensor, apply_color_jitter_to_video
-
 from data.utils.statistics import StatisticInfo
+from PIL import Image
+
+
+def save_image(tensor, path):
+    """
+    Save a torch tensor as an image.
+    Args:
+        tensor: torch.Tensor of shape (b, c, t, h, w) or (b, c, h, w)
+        path: str, path to save the image
+    """
+    # Take first batch and first time frame if applicable
+    if tensor.dim() == 5:  # (b, c, t, h, w)
+        img = tensor[0, :, 0, :, :]  # Take first batch, first frame
+    elif tensor.dim() == 4:  # (b, c, h, w)
+        img = tensor[0]  # Take first batch
+    else:
+        img = tensor
+    
+    # Convert to numpy and transpose to (h, w, c)
+    img = img.detach().cpu().float()
+    
+    # Denormalize if needed (assuming normalized to [-1, 1] or [0, 1])
+    if img.min() < 0:
+        img = (img + 1.0) / 2.0  # [-1, 1] -> [0, 1]
+    
+    img = torch.clamp(img, 0, 1)
+    img = (img * 255).numpy().astype(np.uint8)
+    
+    # Transpose from (c, h, w) to (h, w, c)
+    if img.shape[0] in [1, 3, 4]:  # Channel dimension is first
+        img = np.transpose(img, (1, 2, 0))
+    
+    # Handle grayscale
+    if img.shape[-1] == 1:
+        img = img.squeeze(-1)
+    
+    # Save using PIL
+    Image.fromarray(img).save(path)
 
 
 
@@ -993,7 +1030,17 @@ class Inferencer:
                     history_action_state = state_tensor[:batch_size]
                 else:
                     history_action_state = None
-
+                # Export the image to examine (with error handling for disk quota issues)
+                try:
+                    save_image(image, f'{rollout_dir}/image_{i_validation}_{chunk_idx}.png')
+                    print(f"[DEBUG rollout] Saved image to {rollout_dir}/image_{i_validation}_{chunk_idx}.png")
+                except OSError as e:
+                    if e.errno == 122:  # Disk quota exceeded
+                        print(f"[WARN rollout] Skipping image save due to disk quota exceeded")
+                    else:
+                        print(f"[WARN rollout] Failed to save image: {e}")
+                except Exception as e:
+                    print(f"[WARN rollout] Failed to save image: {e}")
                 preds = pipe.infer(
                     image=image,
                     prompt=prompt[:batch_size],

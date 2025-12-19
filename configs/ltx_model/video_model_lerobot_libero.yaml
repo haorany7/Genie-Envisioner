@@ -1,10 +1,10 @@
-model_name: 'ltx_policy_calvin_tactile_eef_zscore_absolute_action_chunk_27_add_state'
+model_name: 'ltx_video_libero_action_chunk_36'
 is_i2v: True
 report_to: wandb
-tracker_name: ltx_policy_calvin_tactile_eef_zscore_absolute_action_chunk_27_add_state
+tracker_name: ltx_video_libero_action_chunk_36
 
-logging_dir: logs/calvin_tactile_eef_zscore_abs_policy_action_chunk_27_add_state
-output_dir: /work/hdd/bche/haorany7/WORLD-MODEL-TOUCH/outputs/calvin_tactile_eef_zscore_abs_policy_action_chunk_27_add_state
+logging_dir: logs/libero_video_action_chunk_36
+output_dir: /work/hdd/bche/haorany7/WORLD-MODEL-TOUCH/outputs/libero_video_action_chunk_36
 pretrained_model_name_or_path: /projects/behe/haorany7/WORLD-MODEL-TOUCH/pretrained_models/ltx_video
 
 ###
@@ -29,20 +29,20 @@ pipeline_class_path: models/pipeline/custom_pipeline.py
 pipeline_class: CustomPipeline
 
 # 
-return_action: true
+return_action: false
 return_video: true
-train_mode: 'action_full'
+train_mode: 'video_only'
 action_loss_scale: 1.0
 
 # total training step is decided by the minimum of the below two
 train_steps: 40100
 train_epochs: 4000
 steps_to_save: 2000
-steps_to_log: 20
+steps_to_log: 2000
 steps_to_val: 2000
 
 mixed_precision: bf16
-allow_tf32: True
+allow_tf32: False
 
 # timeout, seconds
 nccl_timeout: 600
@@ -52,7 +52,7 @@ seed: 42
 enable_slicing: True
 enable_tiling: True
 
-add_state: True ### whether add state to the action chunk
+add_state: False ### whether add state to the action chunk
 
 caption_dropout_p: 0.06
 
@@ -66,7 +66,7 @@ noise_to_first_frame: 0.1
 
 # Optimizer Config
 optimizer: adamw
-lr: 3e-5
+lr: 5e-5
 beta1: 0.9
 beta2: 0.95
 beta3: 0.999
@@ -80,7 +80,7 @@ max_grad_norm: 1.0
 gradient_accumulation_steps: 1
 
 # lr_scheduler Config
-lr_scheduler: cosine
+lr_scheduler: constant_with_warmup
 lr_warmup_steps: 1000
 lr_num_cycles: 1
 lr_power: 1.0
@@ -95,9 +95,7 @@ flow_mode_scale: 1.29
 pixel_wise_timestep: True
 
 diffusion_model:
-  model_path: /work/hdd/bche/haorany7/WORLD-MODEL-TOUCH/outputs/calvin_tactile_video_action_chunk_27/2025_12_04_17_31_30/step_10000/diffusion_pytorch_model.safetensors
-  # Previous checkpoint: /work/hdd/bche/haorany7/WORLD-MODEL-TOUCH/ckpt_from_zzy/calvin_with_tactile_video_12k_action_chunk_9/diffusion_pytorch_model_video.safetensors
-  # Old finetune checkpoint: /work/hdd/bche/haorany7/WORLD-MODEL-TOUCH/outputs/calvin_tactile_eef_zscore_abs_policy/2025_12_02_06_33_50/step_18000/diffusion_pytorch_model.safetensors
+  model_path: /projects/behe/haorany7/WORLD-MODEL-TOUCH/pretrained_models/genie_envisioner/GE_base_fast_v0.1.safetensors
   config:
     activation_fn: gelu-approximate
     attention_bias: true
@@ -114,52 +112,53 @@ diffusion_model:
     patch_size: 1
     patch_size_t: 1
     qk_norm: rms_norm_across_heads
-    action_expert: true
-    action_in_channels: 7
+    action_expert: false
+    action_in_channels: 14
     action_num_attention_heads: 16
     action_attention_head_dim: 32
 
 data:
 ### more details can be found in data/utils/*_dataset.py
   train:
-    data_roots: ["/work/hdd/behe/calvin/ABC_lerobot"]
-    domains: ["rotate_blue_block_right"]
+    data_roots: ["/work/hdd/bfxb/data"]
+    domains: ["libero-hfvla"]
     sample_size: [192, 256]
-    sample_n_frames: 65
+    sample_n_frames: 160
     preprocess :  'resize'
-    valid_cam :  ['observation.images.camera1', 'observation.images.camera2', 'observation.images.gelsight1']
+    valid_cam :  ['observation.images.image', 'observation.images.image2']
     chunk: 9
-    action_chunk: 27
+    action_chunk: 36
     n_previous: 4
     previous_pick_mode: 'random'
     random_crop: False
-    dataset_info_cache_path: "/projects/behe/haorany7/WORLD-MODEL-TOUCH/cache/calvin_policy_tactile_eef_zscore_action_chunk_27_add_state/train_dataset_info.json"
+    dataset_info_cache_path: "/projects/behe/haorany7/WORLD-MODEL-TOUCH/cache/libero_video_action_chunk_36/train_dataset_info.json"
     action_type: "absolute"
     action_space: "eef"
     action_abs_norm: "zscore"
-    statistics_domain: "ABC_lerobot"
-    is_calvin: true
+    statistics_domain: "libero-hfvla"
+    is_calvin: false
   val:
-    data_roots: ["/work/hdd/behe/calvin/D_lerobot"]
-    domains: ["rotate_blue_block_right"]
+    data_roots: ["/work/hdd/bfxb/data"]
+    domains: ["libero-hfvla"]
     sample_size: [192, 256]
-    sample_n_frames: 65
+    sample_n_frames: 160
     preprocess :  'resize'
-    valid_cam :  ['observation.images.camera1', 'observation.images.camera2', 'observation.images.gelsight1']
+    valid_cam :  ['observation.images.image', 'observation.images.image2']
     chunk: 9
-    action_chunk: 27
+    action_chunk: 36
     n_previous: 4
     previous_pick_mode: 'random'
     random_crop: False
-    dataset_info_cache_path: "/projects/behe/haorany7/WORLD-MODEL-TOUCH/cache/calvin_policy_tactile_eef_zscore_action_chunk_27_add_state/val_dataset_info.json"
+    dataset_info_cache_path: "/projects/behe/haorany7/WORLD-MODEL-TOUCH/cache/libero_video_action_chunk_36/val_dataset_info.json"
     action_type: "absolute"
     action_space: "eef"
     action_abs_norm: "zscore"
-    statistics_domain: "ABC_lerobot"
-    is_calvin: true
+    statistics_domain: "libero-hfvla"
+    is_calvin: false
+
 
 use_color_jitter: true
-num_inference_step: 20
+num_inference_step: 5
 noisy_video: true
 
 # false for quick debug, for training set True
@@ -177,3 +176,4 @@ deepspeed:
   bf16:
     enabled: true
   gradient_clipping: 1.0
+
