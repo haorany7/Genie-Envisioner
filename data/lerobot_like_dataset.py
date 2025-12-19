@@ -25,7 +25,7 @@ import cv2
 from PIL import Image
 from typing import Optional
 
-from data.utils.domain_table import DomainTable
+# from data.utils.domain_table import DomainTable
 from data.utils.statistics import StatisticInfo
 # from data.utils.get_actions import parse_h5
 
@@ -62,6 +62,7 @@ class CustomLeRobotDataset(Dataset):
         dataset_info_cache_path = None,
         action_type = "absolute",
         action_space = "joint",
+        ignore_seek = False,
         train_dataset=True,
         action_key = "action",
         state_key = "observation.state",
@@ -113,6 +114,7 @@ class CustomLeRobotDataset(Dataset):
         fix_epiidx:              used in validation stage only, set episode index to fix_epiidx
         fix_sidx:                used in validation stage only, set start index to fix_sidx
         fix_mem_idx:             used in validation stage only, set memory indexes to fix_mem_idx
+        stat_file:               used to specific statistics
         """
         
         zero_rank_print(f"loading annotations...")
@@ -341,10 +343,10 @@ class CustomLeRobotDataset(Dataset):
         self.preprocess = preprocess
 
         if n_previous > 1:
-            self.n_previous = n_previous
+            self.n_previous = int(n_previous)
             self.previous_pick_mode = previous_pick_mode
         else:
-            self.n_previous = self.sample_n_frames - self.chunk
+            self.n_previous = int(self.sample_n_frames - self.chunk)
             self.previous_pick_mode = 'uniform'
 
         if task_recap_file is not None:
@@ -384,6 +386,8 @@ class CustomLeRobotDataset(Dataset):
             with open(stat_file, "r") as f:
                 self.StatisticInfo = json.load(f)
 
+        self.ignore_seek = ignore_seek
+
     def get_frame_indexes(self, total_frames, ):
         """
         select self.n_previous memory frames and self.action_chunk prediction frmaes
@@ -395,15 +399,22 @@ class CustomLeRobotDataset(Dataset):
         if self.fix_sidx is not None and self.fix_mem_idx is not None:
             action_indexes = list(range(self.fix_sidx, self.fix_sidx+self.action_chunk))
             frame_indexes = action_indexes[::self.video_temporal_stride]
+            action_indexes = np.clip(action_indexes, a_min=0, a_max=total_frames-1)
+            frame_indexes = np.clip(frame_indexes, a_min=0, a_max=total_frames-1)
             return self.fix_mem_idx + frame_indexes, self.fix_mem_idx + action_indexes
 
         chunk_end = random.randint(self.action_chunk, total_frames+self.action_chunk)
-        indexes = np.array(list(range(chunk_end-self.sample_n_frames, chunk_end)))
+
+        indexes_start = max(-self.n_previous, chunk_end-self.sample_n_frames) ### prevent indexes including too many zeros  when sample_n_frames is much larger than the length of the episode
+        indexes = np.array(list(range(indexes_start, chunk_end)))
         indexes = np.clip(indexes, a_min=1, a_max=total_frames-1).tolist()
         video_end = indexes[-self.action_chunk:]
-        mem_candidates = [
-            indexes[int(i)] for i in range(0, self.sample_n_frames-self.action_chunk)
-        ]
+        # mem_candidates = [
+        #     indexes[int(i)] for i in range(0, self.sample_n_frames-self.action_chunk)
+        # ]
+        mem_candidates = indexes[:-self.action_chunk]
+        if len(mem_candidates)<self.n_previous-1:
+            mem_candidates = [1,]*(self.n_previous-1) + mem_candidates
 
         if self.previous_pick_mode == 'uniform':
             mem_indexes = [mem_candidates[int(i)] for i in np.linspace(0, len(mem_candidates)-1, self.n_previous).tolist()]
@@ -414,7 +425,11 @@ class CustomLeRobotDataset(Dataset):
         else:
             raise NotImplementedError(f"unsupported previous_pick_mode: {self.previous_pick_mode}")       
 
-        frame_indexes = mem_indexes + video_end[self.video_temporal_stride-1::self.video_temporal_stride]
+        if not self.ignore_seek:
+            frame_indexes = mem_indexes + video_end[self.video_temporal_stride-1::self.video_temporal_stride]
+        else:
+            frame_indexes = mem_indexes + mem_indexes[-1:]
+
         action_indexes = mem_indexes + video_end
 
         return frame_indexes, action_indexes
@@ -579,7 +594,7 @@ class CustomLeRobotDataset(Dataset):
         video_path = self.dataset[idx][0]
         parquet_path = self.dataset[idx][2]
         domain_name = self.dataset[idx][3]
-        domain_id = self.dataset[idx][4]
+        # domain_id = self.dataset[idx][4]
         caption = self.dataset[idx][6]
         # Ensure caption is always a string (handle cache loading issues)
         if not isinstance(caption, str):
@@ -627,7 +642,6 @@ class CustomLeRobotDataset(Dataset):
             state = np.stack([data[self.state_key][i] for i in range(state_len)])
         except Exception:
             raise ValueError("We currently only support action and state data with the shape of T*C!")
-
         if action_len > 0:
             max_action_idx = action_len - 1
             indexes = [max(0, min(max_action_idx, int(i))) for i in indexes]
@@ -698,6 +712,8 @@ class CustomLeRobotDataset(Dataset):
             state = np.concatenate([pos_ori, grip], axis=-1)
 
         # Convert state to 1 x C slice for history conditioning
+        action = action.astype(np.float32)
+        state = state.astype(np.float32)
         state = torch.FloatTensor(state)[indexes][self.n_previous-1:self.n_previous]
         state = pad_to_16(state)
         # State 始终使用 z-score 归一化（与统计文件中的 state_* 对齐）

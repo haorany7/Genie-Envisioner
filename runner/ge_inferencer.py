@@ -79,7 +79,7 @@ def save_image(tensor, path):
 
 class Inferencer:
 
-    def __init__(self, config_file, output_dir=None, weight_dtype=torch.bfloat16, device="cuda:0") -> None:
+    def __init__(self, config_file, output_dir=None, weight_dtype=torch.bfloat16, device="cuda:0", action_norm_type="meanstd") -> None:
         
         cd = load(open(config_file, "r"), Loader=Loader)
         args = argparse.Namespace(**cd)
@@ -138,6 +138,7 @@ class Inferencer:
             with open(self.args.data['val']['stat_file'], "r") as f:
                 self.StatisticInfo = json.load(f)
 
+        self.action_norm_type = action_norm_type
 
     def prepare_val_dataset(self) -> None:
         if not hasattr(self.args, "val_data_class"):
@@ -649,7 +650,7 @@ class Inferencer:
             print(f"[DEBUG] Occlusion config: start={getattr(self.args, 'occlude_start', None)}, end={getattr(self.args, 'occlude_end', None)}, view={occlusion_label}")
 
             if self.args.return_action:
-                self.val_dataloader.dataset.fix_sidx = 100
+                self.val_dataloader.dataset.fix_sidx = 0
                 self.val_dataloader.dataset.fix_mem_idx = [1 for _ in range(self.args.data['train']['n_previous'])]
 
                 pd_actions_arr_all = None
@@ -711,7 +712,10 @@ class Inferencer:
                 image = rearrange(image, 'b c v t h w -> (b v) c t h w')
 
                 if getattr(self.args, "add_state", False):
-                    history_action_state = batch["state"][:batch_size]
+                    history_action_state = batch["state"][:batch_size] 
+                    if history_action_state.shape[1] > 1:
+                        history_action_state = history_action_state[:, self.args.data['train']['n_previous']-1:self.args.data['train']['n_previous'], :]
+                    history_action_state = history_action_state.contiguous() ### B, 1, C
                 else:
                     history_action_state = None
 
@@ -762,6 +766,8 @@ class Inferencer:
                         batch, preds['action'][0], domain_name, action_type, action_space, statistics_domain
                     )
 
+                    # n_dim = pd_actions_arr.shape[-1]
+                    
                     if pd_actions_arr_all is None:
                         pd_actions_arr_all = pd_actions_arr
                     else:
@@ -780,13 +786,13 @@ class Inferencer:
                 self.val_dataloader.dataset.fix_mem_idx = x = (np.linspace(0, self.val_dataloader.dataset.fix_sidx-1, self.args.data['train']['n_previous']).round().astype(np.int16)).tolist()
 
 
-
             occlusion_marks_sorted = []
             if self.args.return_action:
                 occlusion_marks_sorted = sorted(occlusion_marks)
                 x_axis = np.arange(gt_actions_arr_all.shape[0])
                 num_dims = gt_actions_arr_all.shape[-1]
                 for dim_idx in range(num_dims):
+                    
                     ax = axes[dim_idx]
 
                     # Plot the continuous action sequences
