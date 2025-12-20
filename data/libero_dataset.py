@@ -343,7 +343,17 @@ class CustomLeRobotDataset(Dataset):
             video = video.float()/255.
             video_reader.close()
             video_list.append(video)
-        video_list = torch.stack(video_list, dim=1)
+
+        # Align spatial sizes across cameras to avoid stacking errors (second+ cams are resized to the first cam's size).
+        ref_h, ref_w = video_list[0].shape[-2], video_list[0].shape[-1]
+        aligned_list = []
+        for v in video_list:
+            if v.shape[-2:] != (ref_h, ref_w):
+                v = F.interpolate(v.permute(1,0,2,3), size=(ref_h, ref_w), mode="bilinear", align_corners=False)
+                v = v.permute(1,0,2,3).contiguous()
+            aligned_list.append(v)
+
+        video_list = torch.stack(aligned_list, dim=1)
         return video_list
 
 
@@ -431,6 +441,11 @@ class CustomLeRobotDataset(Dataset):
         domain_name = self.dataset[idx][3]
         # domain_id = self.dataset[idx][4]
         caption = self.dataset[idx][6]
+        # Ensure caption is a string for tokenizer compatibility.
+        if isinstance(caption, (list, tuple)):
+            caption = ", ".join([str(c) for c in caption])
+        else:
+            caption = str(caption)
         total_frames = self.dataset[idx][7]
         
         sample_size, specific_transforms_resize, specific_transforms_norm = self.get_transform()
@@ -487,19 +502,32 @@ class CustomLeRobotDataset(Dataset):
         action = torch.cat((action, state), dim=1)
         state = torch.cat((torch.zeros([1,ori_act_dim]), state[self.n_previous-1:self.n_previous]), dim=1)
 
-        # videos = self.seek_mp4(video_path, self.valid_cam, vid_indexes)
+        # Prefer MP4 if present; otherwise fall back to per-frame images stored in parquet.
+        use_parquet_frames = True
+        if len(self.valid_cam) > 0:
+            first_cam_mp4 = video_path.format(self.valid_cam[0])
+            if os.path.exists(first_cam_mp4):
+                try:
+                    videos = self.seek_mp4(video_path, self.valid_cam, vid_indexes)
+                    use_parquet_frames = False
+                except Exception:
+                    traceback.print_exc()
+                    use_parquet_frames = True
 
-        video_list = []
-        for cam in self.valid_cam:
-            cam_img_bytes = data[cam].to_list()
-            video = []
-            for index in vid_indexes:
-                img = Image.open(io.BytesIO(cam_img_bytes[index]["bytes"]))
-                video.append(img)
-            video = torch.from_numpy(np.stack(video)).permute(3, 0, 1, 2).contiguous()
-            video = video.float()/255.
-            video_list.append(video)
-        videos = torch.stack(video_list, dim=1) 
+        if use_parquet_frames:
+            video_list = []
+            for cam in self.valid_cam:
+                cam_img_bytes = data[cam].to_list()
+                video = []
+                for index in vid_indexes:
+                    frame_bytes = cam_img_bytes[index]["bytes"] if isinstance(cam_img_bytes[index], dict) else cam_img_bytes[index]
+                    img = Image.open(io.BytesIO(frame_bytes))
+                    video.append(img)
+                video = torch.from_numpy(np.stack(video)).permute(3, 0, 1, 2).contiguous()
+                video = video.float()/255.
+                video_list.append(video)
+            videos = torch.stack(video_list, dim=1)
+
         videos, _ = self.transform_video(
             videos, specific_transforms_resize, None, sample_size
         )

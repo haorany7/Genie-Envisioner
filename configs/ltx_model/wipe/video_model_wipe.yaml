@@ -3,8 +3,8 @@ is_i2v: True
 report_to: None
 tracker_name: ltx_trainer
 
-logging_dir: logs/libero_video_lerobot
-output_dir: /work/hdd/behe/libeo_lerobot/outputs/video_model_libero
+logging_dir: logs/wipe_video
+output_dir: /work/hdd/bche/haorany7/WORLD-MODEL-TOUCH/outputs/wipe_video
 pretrained_model_name_or_path: /projects/behe/haorany7/WORLD-MODEL-TOUCH/pretrained_models/ltx_video
 
 ###
@@ -116,41 +116,41 @@ diffusion_model:
 
 data:
   train:
-    data_roots: ["/work/hdd/behe/libeo_lerobot"]
-    domains: ["libero"]
+    data_roots: ["/projects/behe/haorany7/WORLD-MODEL-TOUCH/lerobot_data_with_tactile_gripper_added/wipe_single_arm"]
+    domains: ["wipe"]
     sample_size: [256, 256]
     sample_n_frames: 500
     preprocess :  'resize'
-    valid_cam :  ['image', 'wrist_image']
+    valid_cam :  ['observation.images.camera1', 'observation.images.camera2', 'observation.images.gelsight']
     chunk: 9
     action_chunk: 36
     n_previous: 4
     previous_pick_mode: 'random'
     random_crop: False
     action_type: "absolute"
-    action_space: "eef"
-    stat_file: configs/ltx_model/libero/libero_all.json
-    state_key: state
-    action_key: actions
+    action_space: "joint"
+    stat_file: configs/ltx_model/wipe/wipe_joint.json
+    state_key: observation.state
+    action_key: action
     ignore_seek: False
     extra_parquet_index: False
   val:
-    data_roots: ["/work/hdd/behe/libeo_lerobot"]
-    domains: ["libero"]
+    data_roots: ["/projects/behe/haorany7/WORLD-MODEL-TOUCH/lerobot_data_with_tactile_gripper_added/wipe_single_arm"]
+    domains: ["wipe"]
     sample_size: [256, 256]
     sample_n_frames: 500
     preprocess :  'resize'
-    valid_cam : ['image', 'wrist_image']
+    valid_cam : ['observation.images.camera1', 'observation.images.camera2', 'observation.images.gelsight']
     chunk: 9
     action_chunk: 36
     n_previous: 4
     previous_pick_mode: 'random'
     random_crop: False
     action_type: "absolute"
-    action_space: "eef"
-    stat_file: configs/ltx_model/libero/libero_all.json
-    state_key: state
-    action_key: actions
+    action_space: "joint"
+    stat_file: configs/ltx_model/wipe/wipe_joint.json
+    state_key: observation.state
+    action_key: action
     ignore_seek: False
     extra_parquet_index: False
 

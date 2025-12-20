@@ -117,19 +117,21 @@ def process_single_file(parquet_path, action_key, state_key, is_calvin_eef, data
         return None
 
 def cal_statistic(data, _filter=True):
-    """Calculate mean and std, optionally filtering outliers"""
+    """Calculate statistics; always return q01/q99, with optional filtering for mean/std."""
+    q99 = np.percentile(data, 99, axis=0)
+    q01 = np.percentile(data,  1, axis=0)
+
+    data_for_moments = data
     if _filter:
-        q99 = np.percentile(data, 99, axis=0)
-        q01 = np.percentile(data,  1, axis=0)
         data_mask = (data>=q01) & (data <= q99)
         data_mask = data_mask.min(axis=1)
-        data = data[data_mask, :]
+        data_for_moments = data[data_mask, :]
 
-    means = np.mean(data, axis=0)
-    stds = np.std(data, axis=0)
+    means = np.mean(data_for_moments, axis=0)
+    stds = np.std(data_for_moments, axis=0)
     mins = np.min(data, axis=0)
     maxs = np.max(data, axis=0)
-    return means, stds, mins, maxs
+    return means, stds, mins, maxs, q01, q99
 
 def get_statistics(
     data_root, 
@@ -245,9 +247,9 @@ def get_statistics(
     
     # Calculate statistics
     print("\nCalculating statistics...")
-    means, stds, mins, maxs = cal_statistic(data_list, _filter=_filter)
-    delta_means, delta_stds, delta_mins, delta_maxs = cal_statistic(delta_data_list, _filter=_filter)
-    state_means, state_stds, state_mins, state_maxs = cal_statistic(state_list, _filter=_filter)
+    means, stds, mins, maxs, q01, q99 = cal_statistic(data_list, _filter=_filter)
+    delta_means, delta_stds, delta_mins, delta_maxs, delta_q01, delta_q99 = cal_statistic(delta_data_list, _filter=_filter)
+    state_means, state_stds, state_mins, state_maxs, state_q01, state_q99 = cal_statistic(state_list, _filter=_filter)
     
     # Build statistics dictionary
     statistics_info = {
@@ -256,6 +258,8 @@ def get_statistics(
             "std": stds.tolist(),
             "min": mins.tolist(),
             "max": maxs.tolist(),
+            "q01": q01.tolist(),
+            "q99": q99.tolist(),
             "normalize": "mean_std"
         },
         f"{data_name}_delta_{data_type}": {
@@ -263,6 +267,8 @@ def get_statistics(
             "std": delta_stds.tolist(),
             "min": delta_mins.tolist(),
             "max": delta_maxs.tolist(),
+            "q01": delta_q01.tolist(),
+            "q99": delta_q99.tolist(),
             "normalize": "mean_std"
         },
         f"{data_name}_state_{data_type}": {
@@ -270,6 +276,8 @@ def get_statistics(
             "std": state_stds.tolist(),
             "min": state_mins.tolist(),
             "max": state_maxs.tolist(),
+            "q01": state_q01.tolist(),
+            "q99": state_q99.tolist(),
             "normalize": "mean_std"
         },
     }

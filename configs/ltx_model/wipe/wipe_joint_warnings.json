@@ -1,0 +1,50 @@
+[
+  {
+    "episode": "/projects/behe/haorany7/WORLD-MODEL-TOUCH/lerobot_data_with_tactile_gripper_added/mango_single_arm/data/chunk-000/episode_000101.parquet",
+    "timestep": 16,
+    "type": "position",
+    "jump_magnitude": 0.10018503463995604,
+    "threshold": 0.1,
+    "delta": [
+      -0.08335115240792679,
+      -0.005353122474732741,
+      0.05532603941951986
+    ]
+  },
+  {
+    "episode": "/projects/behe/haorany7/WORLD-MODEL-TOUCH/lerobot_data_with_tactile_gripper_added/mango_single_arm/data/chunk-000/episode_000101.parquet",
+    "timestep": 18,
+    "type": "position",
+    "jump_magnitude": 0.10329812944088014,
+    "threshold": 0.1,
+    "delta": [
+      -0.0841095454608245,
+      0.0002652168806662747,
+      0.059966803886521536
+    ]
+  },
+  {
+    "episode": "/projects/behe/haorany7/WORLD-MODEL-TOUCH/lerobot_data_with_tactile_gripper_added/mango_single_arm/data/chunk-000/episode_000120.parquet",
+    "timestep": 12,
+    "type": "position",
+    "jump_magnitude": 0.11390740076381096,
+    "threshold": 0.1,
+    "delta": [
+      -0.09659274455391753,
+      0.0007365611482221812,
+      0.06036716927257735
+    ]
+  },
+  {
+    "episode": "/projects/behe/haorany7/WORLD-MODEL-TOUCH/lerobot_data_with_tactile_gripper_added/mango_single_arm/data/chunk-000/episode_000121.parquet",
+    "timestep": 16,
+    "type": "position",
+    "jump_magnitude": 0.10272264455160093,
+    "threshold": 0.1,
+    "delta": [
+      -0.08798299731008219,
+      -0.00017664854815124809,
+      0.053017946803880056
+    ]
+  }
+]

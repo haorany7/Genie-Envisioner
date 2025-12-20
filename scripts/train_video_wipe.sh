@@ -1,7 +1,7 @@
 #!/bin/bash
-#SBATCH --job-name="libero_video_action_chunk_36"
-#SBATCH --output="/work/hdd/bche/haorany7/WORLD-MODEL-TOUCH/slurm_outputs/libero_video_action_chunk_36/slurm-%j.out"
-#SBATCH --error="/work/hdd/bche/haorany7/WORLD-MODEL-TOUCH/slurm_outputs/libero_video_action_chunk_36/slurm-%j.err"
+#SBATCH --job-name="wipe_video"
+#SBATCH --output="/work/hdd/bche/haorany7/WORLD-MODEL-TOUCH/slurm_outputs/wipe_video/slurm-%j.out"
+#SBATCH --error="/work/hdd/bche/haorany7/WORLD-MODEL-TOUCH/slurm_outputs/wipe_video/slurm-%j.err"
 #SBATCH --partition=gpuA100x4
 #SBATCH --nodes=1
 #SBATCH --mem=128G
@@ -18,7 +18,7 @@
 # ============================================================================
 # 📌 Environment Setup
 # ============================================================================
-echo "🚀 Starting Libero Video Training (Action Chunk 36) at $(date)"
+echo "🚀 Starting Wipe Video Training at $(date)"
 echo "============================================================================"
 echo "📍 Job ID: $SLURM_JOB_ID"
 echo "📍 Node: $SLURM_NODELIST"
@@ -36,12 +36,12 @@ else
 fi
 conda activate genie_envisioner
 
-# Paths (avoid relying on BASH_SOURCE which changes under SLURM spool directories)
+# Paths
 PROJ_ROOT="/projects/behe/haorany7/WORLD-MODEL-TOUCH/WM-Touch-Evaluation/GE-official/Genie-Envisioner"
 SCRIPT_DIR="${PROJ_ROOT}/scripts"
 
 MAIN_PY="${PROJ_ROOT}/main.py"
-CONFIG_FILE="${PROJ_ROOT}/configs/ltx_model/libero/video_model_libero.yaml"
+CONFIG_FILE="${PROJ_ROOT}/configs/ltx_model/wipe/video_model_wipe.yaml"
 
 echo "📂 Project root   : ${PROJ_ROOT}"
 echo "📄 Main script    : ${MAIN_PY}"
@@ -73,24 +73,24 @@ echo "Detected ${NGPU} GPUs."
 
 # Ensure CUDA_VISIBLE_DEVICES is set correctly if it's empty but we have GPUs
 if [ -z "$CUDA_VISIBLE_DEVICES" ] && [ "$NGPU" -gt 0 ]; then
-    # Generate sequence 0,1,2...N-1
     export CUDA_VISIBLE_DEVICES=$(seq -s, 0 $(($NGPU - 1)))
     echo "Set CUDA_VISIBLE_DEVICES to $CUDA_VISIBLE_DEVICES"
 fi
 
 # Create slurm output directory if it doesn't exist
-SLURM_OUT_DIR="/work/hdd/bche/haorany7/WORLD-MODEL-TOUCH/slurm_outputs/libero_video_action_chunk_36"
+SLURM_OUT_DIR="/work/hdd/bche/haorany7/WORLD-MODEL-TOUCH/slurm_outputs/wipe_video"
 mkdir -p "${SLURM_OUT_DIR}"
 
 echo "============================================================================"
-echo "🔥 Launching Libero video training on ${NGPU} GPU(s)..."
+echo "🔥 Launching Wipe video training on ${NGPU} GPU(s)..."
 echo "============================================================================"
 
 # Navigate to project root to ensure imports work correctly
 cd "${PROJ_ROOT}"
 
-# Add --resume flag to automatically resume from latest checkpoint if it exists
-# Use --sub_folder to continue from a specific timestamped directory
+# To resume from a specific run, add e.g.:
+#   --sub_folder \"2025_12_19_09_15_10\" \\
+#   --resume
 torchrun --nnodes=1 \
   --nproc_per_node="${NGPU}" \
   --node_rank=0 \
@@ -98,13 +98,10 @@ torchrun --nnodes=1 \
   --config_file "${CONFIG_FILE}" \
   --runner_class_path runner/ge_trainer.py \
   --runner_class Trainer \
-  --mode train \
-  --sub_folder "2025_12_19_09_15_10" \
-  --resume
+  --mode train
 
 echo "============================================================================"
-echo "✅ Libero video training launched. Check logs and checkpoints under the configured output_dir."
-echo "✅ Libero video training completed at $(date)"
+echo "✅ Wipe video training launched. Check logs and checkpoints under the configured output_dir."
+echo "✅ Wipe video training completed at $(date)"
 echo "============================================================================"
-
 
