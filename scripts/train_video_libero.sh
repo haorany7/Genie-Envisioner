@@ -98,9 +98,7 @@ torchrun --nnodes=1 \
   --config_file "${CONFIG_FILE}" \
   --runner_class_path runner/ge_trainer.py \
   --runner_class Trainer \
-  --mode train \
-  --sub_folder "2025_12_19_09_15_10" \
-  --resume
+  --mode train
 
 echo "============================================================================"
 echo "✅ Libero video training launched. Check logs and checkpoints under the configured output_dir."

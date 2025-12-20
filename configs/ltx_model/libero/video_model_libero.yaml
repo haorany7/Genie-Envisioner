@@ -35,9 +35,9 @@ train_mode: 'video_only'
 action_loss_scale: 1.0
 
 # total training step is decided by the minimum of the below two
-train_steps: 100100
-train_epochs: 10000
-steps_to_save: 2000
+train_steps: 50100
+train_epochs: 5000
+steps_to_save: 10000
 steps_to_log: 20
 steps_to_val: 2000
 
