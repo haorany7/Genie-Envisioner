@@ -487,19 +487,31 @@ class CustomLeRobotDataset(Dataset):
         action = torch.cat((action, state), dim=1)
         state = torch.cat((torch.zeros([1,ori_act_dim]), state[self.n_previous-1:self.n_previous]), dim=1)
 
-        # videos = self.seek_mp4(video_path, self.valid_cam, vid_indexes)
+        # Prefer MP4 if present; otherwise fall back to per-frame images stored in parquet.
+        use_parquet_frames = True
+        if len(self.valid_cam) > 0:
+            first_cam_mp4 = video_path.format(self.valid_cam[0])
+            if os.path.exists(first_cam_mp4):
+                try:
+                    videos = self.seek_mp4(video_path, self.valid_cam, vid_indexes)
+                    use_parquet_frames = False
+                except Exception:
+                    traceback.print_exc()
+                    use_parquet_frames = True
 
-        video_list = []
-        for cam in self.valid_cam:
-            cam_img_bytes = data[cam].to_list()
-            video = []
-            for index in vid_indexes:
-                img = Image.open(io.BytesIO(cam_img_bytes[index]["bytes"]))
-                video.append(img)
-            video = torch.from_numpy(np.stack(video)).permute(3, 0, 1, 2).contiguous()
-            video = video.float()/255.
-            video_list.append(video)
-        videos = torch.stack(video_list, dim=1) 
+        if use_parquet_frames:
+            video_list = []
+            for cam in self.valid_cam:
+                cam_img_bytes = data[cam].to_list()
+                video = []
+                for index in vid_indexes:
+                    img = Image.open(io.BytesIO(cam_img_bytes[index]["bytes"]))
+                    video.append(img)
+                video = torch.from_numpy(np.stack(video)).permute(3, 0, 1, 2).contiguous()
+                video = video.float()/255.
+                video_list.append(video)
+            videos = torch.stack(video_list, dim=1)
+
         videos, _ = self.transform_video(
             videos, specific_transforms_resize, None, sample_size
         )
