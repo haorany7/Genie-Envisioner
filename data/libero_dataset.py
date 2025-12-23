@@ -75,6 +75,7 @@ class CustomLeRobotDataset(Dataset):
         extra_parquet_index = False,
         valid_act_dim = None,
         valid_sta_dim = None,
+        repeat_dataset: int = 1,
     ):
         """
         data_roots:              directory of LeRoBot dataset
@@ -114,6 +115,7 @@ class CustomLeRobotDataset(Dataset):
         extra_parquet_index:     when extra_parquet_index=True, the shape of the action/state arrary saved in .parquet files should be [T,1,C]; when extra_parquet_index=False, the shape of the action/state arrary saved in .parquet files should be [T,C].
         valid_act_dim:           when valid_act_dim is not None, only the first $valid_act_dim dimenssions of actions will be used.
         valid_sta_dim:           when valid_sta_dim is not None, only the first $valid_sta_dim dimenssions of actions will be used.
+        repeat_dataset:          repeat the dataset index list N times (useful when dataset is small and epoch is too short).
 
         """
         
@@ -211,6 +213,12 @@ class CustomLeRobotDataset(Dataset):
             zero_rank_print(f"Save Cache Dataset Information to {dataset_info_cache_path}")
             with open(dataset_info_cache_path, "w") as f:
                 json.dump(self.dataset, f)
+
+        if repeat_dataset is None:
+            repeat_dataset = 1
+        repeat_dataset = int(repeat_dataset)
+        if repeat_dataset > 1:
+            self.dataset = self.dataset * repeat_dataset
 
         self.length = len(self.dataset)
         zero_rank_print(f"data scale: {self.length}")

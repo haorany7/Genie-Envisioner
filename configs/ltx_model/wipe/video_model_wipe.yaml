@@ -134,6 +134,7 @@ data:
     state_key: state
     action_key: actions
     extra_parquet_index: False
+    repeat_dataset: 1000
   val:
     data_roots: ["/projects/behe/haorany7/WORLD-MODEL-TOUCH/wipe_lerobot"]
     domains: ["wipe_lerobot"]
