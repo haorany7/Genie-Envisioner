@@ -178,7 +178,7 @@ def get_statistics(
     if not os.path.isdir(data_root):
         raise ValueError(f"data_root must be a directory: {data_root}")
 
-    parquet_files = []
+        parquet_files = []
 
     # Case A: plain LeRobot layout: <data_root>/data/chunk-*/episode_*.parquet
     direct_data_dir = os.path.join(data_root, "data")
@@ -193,10 +193,10 @@ def get_statistics(
                 data_dir = os.path.join(task_path, "data")
                 if os.path.exists(data_dir):
                     parquet_files.extend(glob.glob(os.path.join(data_dir, "chunk-*", "*.parquet")))
-
+        
     # Case C: fallback: parquet directly under root
-    if len(parquet_files) == 0:
-        parquet_files = glob.glob(os.path.join(data_root, "*.parquet"))
+        if len(parquet_files) == 0:
+            parquet_files = glob.glob(os.path.join(data_root, "*.parquet"))
     
     parquet_files.sort()
     print(f"Found {len(parquet_files)} parquet files")

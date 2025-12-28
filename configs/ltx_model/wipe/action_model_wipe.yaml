@@ -59,7 +59,7 @@ rand_init_action: True
 caption_dropout_p: 0.0
 
 # dataloader
-batch_size: 16
+batch_size: 32
 dataloader_num_workers: 8
 pin_memory: True
 
@@ -97,7 +97,7 @@ flow_mode_scale: 1.29
 pixel_wise_timestep: True
 
 diffusion_model:
-  model_path: PATH/TO/GE_ACT/TRAINED_ON_LIBERO_DATASET.SAFETENSOR
+  model_path: /work/hdd/bche/haorany7/WORLD-MODEL-TOUCH/outputs/wipe_video/2025_12_27_10_24_25/step_40000/diffusion_pytorch_model.safetensors
   config:
     activation_fn: gelu-approximate
     attention_bias: true
@@ -124,7 +124,7 @@ diffusion_model:
 
 data:
   train:
-    data_roots: ["/projects/behe/haorany7/WORLD-MODEL-TOUCH/wipe_lerobot"]
+    data_roots: ["/work/hdd/behe/WORLD-MODEL-TOUCH/wipe_lerobot"]
     domains: ["wipe_lerobot"]
     sample_size: [256, 256]
     sample_n_frames: 500
@@ -137,14 +137,14 @@ data:
     random_crop: False
     ignore_seek: True
     action_type: "absolute"
-    action_space: "eef"
+    action_space: "joint"
     stat_file: configs/ltx_model/wipe/wipe_joint_statistics.json
     state_key: state
     action_key: actions
     extra_parquet_index: False
     repeat_dataset: 1000
   val:
-    data_roots: ["/projects/behe/haorany7/WORLD-MODEL-TOUCH/wipe_lerobot"]
+    data_roots: ["/work/hdd/behe/WORLD-MODEL-TOUCH/wipe_lerobot"]
     domains: ["wipe_lerobot"]
     sample_size: [256, 256]
     sample_n_frames: 500
@@ -157,7 +157,7 @@ data:
     random_crop: False
     ignore_seek: True
     action_type: "absolute"
-    action_space: "eef"
+    action_space: "joint"
     stat_file: configs/ltx_model/wipe/wipe_joint_statistics.json
     state_key: state
     action_key: actions

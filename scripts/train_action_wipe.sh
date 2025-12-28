@@ -1,7 +1,7 @@
 #!/bin/bash
-#SBATCH --job-name="video_wipe"
-#SBATCH --output="/work/hdd/behe/WORLD-MODEL-TOUCH/slurm_outputs/train_video_wipe/slurm-%j.out"
-#SBATCH --error="/work/hdd/behe/WORLD-MODEL-TOUCH/slurm_outputs/train_video_wipe/slurm-%j.err"
+#SBATCH --job-name="action_wipe"
+#SBATCH --output="/work/hdd/behe/WORLD-MODEL-TOUCH/slurm_outputs/train_action_wipe/slurm-%j.out"
+#SBATCH --error="/work/hdd/behe/WORLD-MODEL-TOUCH/slurm_outputs/train_action_wipe/slurm-%j.err"
 #SBATCH --partition=gpuA100x4
 #SBATCH --nodes=1
 #SBATCH --mem=240G
@@ -13,9 +13,9 @@
 #SBATCH --account=bfxb-delta-gpu
 #SBATCH --exclusive
 #SBATCH --requeue
-#SBATCH -t 48:00:00  # Video Wipe Training时间
+#SBATCH -t 48:00:00  # Action Wipe Training Time
 
-echo "🚀 Starting WM-Touch Video Wipe Training"
+echo "🚀 Starting WM-Touch Action Wipe Training"
 echo "============================================================="
 echo "Job ID: $SLURM_JOB_ID"
 echo "Node: $SLURM_NODEID"
@@ -25,4 +25,4 @@ echo "Time: $(date)"
 # 环境设置
 source ~/.bashrc || echo "⚠️ Warning: bashrc loading had issues, continuing..."
 conda activate genie_envisioner
-bash scripts/train.sh main.py configs/ltx_model/wipe/video_model_wipe.yaml
+bash scripts/train.sh main.py configs/ltx_model/wipe/action_model_wipe.yaml
