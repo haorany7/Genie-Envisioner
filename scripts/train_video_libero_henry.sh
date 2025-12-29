@@ -13,7 +13,7 @@
 #SBATCH --account=bche-delta-gpu
 #SBATCH --exclusive
 #SBATCH --requeue
-#SBATCH -t 10:30:00  # Video Libero Training Time
+#SBATCH -t 7:30:00  # Video Libero Training Time
 
 echo "🚀 Starting WM-Touch Video Libero Training"
 echo "============================================================="

@@ -97,7 +97,7 @@ flow_mode_scale: 1.29
 pixel_wise_timestep: True
 
 diffusion_model:
-  model_path: /work/hdd/bche/haorany7/WORLD-MODEL-TOUCH/outputs/wipe_video/2025_12_27_10_24_25/step_40000/diffusion_pytorch_model.safetensors
+  model_path: /work/hdd/bche/haorany7/WORLD-MODEL-TOUCH/outputs/wipe_video/2025_12_27_10_24_25/step_50000/diffusion_pytorch_model.safetensors
   config:
     activation_fn: gelu-approximate
     attention_bias: true

@@ -6,14 +6,14 @@
 #SBATCH --nodes=1
 #SBATCH --mem=240G
 #SBATCH --ntasks-per-node=1
-#SBATCH --cpus-per-task=32
+#SBATCH --cpus-per-task=64
 #SBATCH --constraint="projects"
 #SBATCH --gpus-per-node=4
 #SBATCH --gpu-bind=closest
 #SBATCH --account=behe-delta-gpu
 #SBATCH --exclusive
 #SBATCH --requeue
-#SBATCH -t 1:00:00  # Video Libero Training Time
+#SBATCH -t 48:00:00  # Video Libero Training Time
 
 echo "🚀 Starting WM-Touch Video Libero Training"
 echo "============================================================="
