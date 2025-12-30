@@ -8,14 +8,36 @@ import argparse
 import imageio
 import glob
 import random
+import json
 
-def process_single_episode(parquet_path, output_dir, fps):
+def load_task_map(data_root):
+    """Load task_index to task_string mapping from meta/tasks.jsonl"""
+    task_map = {}
+    tasks_path = os.path.join(data_root, "meta", "tasks.jsonl")
+    if os.path.exists(tasks_path):
+        with open(tasks_path, "r") as f:
+            for line in f:
+                item = json.loads(line)
+                task_map[item["task_index"]] = item["task"]
+    return task_map
+
+def process_single_episode(parquet_path, output_dir, fps, task_map):
     ep_id = os.path.basename(parquet_path).split(".")[0]
     print(f"\n>>> Processing {ep_id} from {parquet_path}...")
     
     # 1. Load Data
     df = pd.read_parquet(parquet_path)
     
+    # Get Task Instruction
+    instruction = "Unknown"
+    if 'task_index' in df.columns:
+        t_idx = df['task_index'].iloc[0]
+        instruction = task_map.get(t_idx, f"Index {t_idx}")
+    elif 'task' in df.columns:
+        instruction = df['task'].iloc[0]
+    
+    print(f"  Task Instruction: {instruction}")
+
     # 2. Video Visualization
     cams = ["camera1", "camera2", "gelsight"]
     available_cams = [c for c in cams if c in df.columns]
@@ -60,7 +82,8 @@ def process_single_episode(parquet_path, output_dir, fps):
     
     n_dims = min(8, actions.shape[1], state.shape[1])
     fig, axes = plt.subplots(4, 2, figsize=(15, 20))
-    fig.suptitle(f"Trajectory Check: {ep_id} {status_str}\nBlue: Action (GT) | Red Dash: State (Input)", fontsize=16)
+    # 将 Instruction 放在主标题中
+    fig.suptitle(f"Trajectory Check: {ep_id} {status_str}\nInstruction: {instruction}\nBlue: Action (GT) | Red Dash: State (Input)", fontsize=16)
     
     dim_names = ["Joint 1", "Joint 2", "Joint 3", "Joint 4", "Joint 5", "Joint 6", "Joint 7", "Gripper"]
     for i in range(n_dims):
@@ -83,7 +106,6 @@ def process_single_episode(parquet_path, output_dir, fps):
 
 def main():
     parser = argparse.ArgumentParser()
-    # 互斥参数组：要么选单文件，要么选目录随机
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--parquet_path", type=str, help="Path to a single episode parquet file")
     group.add_argument("--data_root", type=str, help="Root directory of the dataset to sample from")
@@ -95,10 +117,18 @@ def main():
 
     os.makedirs(args.output_dir, exist_ok=True)
     
-    if args.parquet_path:
-        process_single_episode(args.parquet_path, args.output_dir, args.fps)
+    # 确定数据根目录以便加载 meta 数据
+    if args.data_root:
+        data_root = args.data_root
     else:
-        # 自动搜索所有 parquet 文件
+        # 如果只传了 parquet_path，尝试向上找两级
+        data_root = os.path.dirname(os.path.dirname(os.path.dirname(args.parquet_path)))
+    
+    task_map = load_task_map(data_root)
+    
+    if args.parquet_path:
+        process_single_episode(args.parquet_path, args.output_dir, args.fps, task_map)
+    else:
         search_pattern = os.path.join(args.data_root, "**", "*.parquet")
         all_files = glob.glob(search_pattern, recursive=True)
         all_files = sorted(all_files)
@@ -108,12 +138,10 @@ def main():
             return
             
         print(f"Found {len(all_files)} total episodes. Sampling {args.num_samples}...")
-        
-        # 随机采样
         sampled_files = random.sample(all_files, min(len(all_files), args.num_samples))
         
         for pq in sorted(sampled_files):
-            process_single_episode(pq, args.output_dir, args.fps)
+            process_single_episode(pq, args.output_dir, args.fps, task_map)
             
     print("\nAll tasks completed!")
 

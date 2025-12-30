@@ -10,7 +10,7 @@
 #SBATCH --constraint="projects"
 #SBATCH --gpus-per-node=4
 #SBATCH --gpu-bind=closest
-#SBATCH --account=bfxb-delta-gpu
+#SBATCH --account=behe-delta-gpu
 #SBATCH --exclusive
 #SBATCH --requeue
 #SBATCH -t 48:00:00  # Action Wipe Training Time
