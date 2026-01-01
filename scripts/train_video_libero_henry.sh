@@ -4,16 +4,16 @@
 #SBATCH --error="/work/hdd/behe/WORLD-MODEL-TOUCH/slurm_outputs/train_video_libero/henry/slurm-%j.err"
 #SBATCH --partition=gpuH200x8
 #SBATCH --nodes=1
-#SBATCH --mem=240G
+#SBATCH --mem=300G
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=64
 #SBATCH --constraint="projects"
-#SBATCH --gpus-per-node=4
+#SBATCH --gpus-per-node=8
 #SBATCH --gpu-bind=closest
 #SBATCH --account=bche-delta-gpu
 #SBATCH --exclusive
 #SBATCH --requeue
-#SBATCH -t 7:30:00  # Video Libero Training Time
+#SBATCH -t 00:01:00  # Video Libero Training Time
 
 echo "🚀 Starting WM-Touch Video Libero Training"
 echo "============================================================="
