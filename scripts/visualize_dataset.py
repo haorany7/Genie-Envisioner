@@ -39,8 +39,27 @@ def process_single_episode(parquet_path, output_dir, fps, task_map):
     print(f"  Task Instruction: {instruction}")
 
     # 2. Video Visualization
-    cams = ["camera1", "camera2", "gelsight"]
-    available_cams = [c for c in cams if c in df.columns]
+    # Automatically detect image columns
+    image_cols = []
+    for col in df.columns:
+        sample = df[col].iloc[0]
+        if isinstance(sample, dict) and "bytes" in sample:
+            image_cols.append(col)
+        elif isinstance(sample, bytes):
+            image_cols.append(col)
+        elif isinstance(sample, np.ndarray) and sample.ndim == 3:
+            image_cols.append(col)
+            
+    # Priority order for visualization if many are found
+    priority = ["camera1", "camera2", "image", "wrist_image", "gelsight", "rgb"]
+    available_cams = [c for c in priority if c in image_cols]
+    # Add any other image columns not in priority
+    for c in image_cols:
+        if c not in available_cams:
+            available_cams.append(c)
+    
+    # Limit to top 4 cameras for horizontal layout sanity
+    available_cams = available_cams[:4]
     
     if available_cams:
         video_path = os.path.join(output_dir, f"{ep_id}_video.mp4")
@@ -49,7 +68,7 @@ def process_single_episode(parquet_path, output_dir, fps, task_map):
         first_img = PIL.Image.open(io.BytesIO(first_img_bytes))
         target_h = first_img.height
         
-        print(f"  Generating H.264 video (fps={fps})...")
+        print(f"  Generating H.264 video (fps={fps}) from {available_cams}...")
         try:
             writer = imageio.get_writer(video_path, fps=fps, codec='libx264', pixelformat='yuv420p')
             for i in range(len(df)):
@@ -80,23 +99,31 @@ def process_single_episode(parquet_path, output_dir, fps, task_map):
     is_identical = np.array_equal(actions, state)
     status_str = "(IDENTICAL)" if is_identical else "(DIFFERENT)"
     
-    n_dims = min(8, actions.shape[1], state.shape[1])
-    fig, axes = plt.subplots(4, 2, figsize=(15, 20))
+    n_dims = actions.shape[1]
+    rows = (n_dims + 1) // 2
+    fig, axes = plt.subplots(rows, 2, figsize=(15, 5 * rows))
+    if n_dims == 1:
+        axes = np.array([axes])
+    axes = axes.flatten()
+    
     # 将 Instruction 放在主标题中
     fig.suptitle(f"Trajectory Check: {ep_id} {status_str}\nInstruction: {instruction}\nBlue: Action (GT) | Red Dash: State (Input)", fontsize=16)
     
-    dim_names = ["Joint 1", "Joint 2", "Joint 3", "Joint 4", "Joint 5", "Joint 6", "Joint 7", "Gripper"]
     for i in range(n_dims):
-        ax = axes[i//2, i%2]
+        ax = axes[i]
         ax.plot(actions[:, i], label='Action', color='blue', alpha=0.8, linewidth=2.5)
         ax.plot(state[:, i], label='State', color='red', linestyle='--', alpha=0.8, linewidth=1.5)
-        ax.set_title(dim_names[i])
+        ax.set_title(f"Dimension {i}")
         ax.legend()
         ax.grid(True, linestyle=':', alpha=0.6)
         
         diff = np.abs(np.diff(actions[:, i]))
         if len(diff) > 0 and np.max(diff) > 1.0:
             ax.set_facecolor('#ffeeee')
+    
+    # Hide unused axes
+    for j in range(i + 1, len(axes)):
+        axes[j].axis('off')
     
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
     plot_path = os.path.join(output_dir, f"{ep_id}_comparison.png")
