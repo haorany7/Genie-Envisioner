@@ -28,6 +28,6 @@ conda activate genie_envisioner
 bash scripts/infer.sh \
   main.py \
   configs/ltx_model/wipe/action_model_wipe.yaml \
-  /work/hdd/bche/haorany7/WORLD-MODEL-TOUCH/outputs/wipe_action/2026_01_01_02_40_14/step_20000/diffusion_pytorch_model.safetensors \
-  /work/hdd/bche/haorany7/WORLD-MODEL-TOUCH/outputs/wipe_action/2026_01_01_02_40_14/infer_step_20000 \
+  /work/hdd/bche/haorany7/WORLD-MODEL-TOUCH/outputs/wipe_action/2026_01_01_02_40_14/step_35000/diffusion_pytorch_model.safetensors \
+  /work/hdd/bche/haorany7/WORLD-MODEL-TOUCH/outputs/wipe_action/2026_01_01_02_40_14/infer_step_35000 \
   wipe_lerobot

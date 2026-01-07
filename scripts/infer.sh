@@ -20,7 +20,7 @@ torchrun --nnodes=1 \
     --mode infer \
     --checkpoint_path $ckp_path \
     --output_path $output_path \
-    --n_validation 1 \
+    --n_validation 100 \
     --n_chunk_action 10 \
     --domain_name $domain_name
 

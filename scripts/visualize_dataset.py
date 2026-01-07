@@ -37,7 +37,7 @@ def process_single_episode(parquet_path, output_dir, fps, task_map):
         instruction = df['task'].iloc[0]
     
     print(f"  Task Instruction: {instruction}")
-
+    
     # 2. Video Visualization
     # Automatically detect image columns
     image_cols = []
@@ -51,7 +51,17 @@ def process_single_episode(parquet_path, output_dir, fps, task_map):
             image_cols.append(col)
             
     # Priority order for visualization if many are found
-    priority = ["camera1", "camera2", "image", "wrist_image", "gelsight", "rgb"]
+    priority = [
+        "camera1",
+        "camera2",
+        "realsense_0",
+        "realsense_1",
+        "realsense_2",
+        "image",
+        "wrist_image",
+        "gelsight",
+        "rgb",
+    ]
     available_cams = [c for c in priority if c in image_cols]
     # Add any other image columns not in priority
     for c in image_cols:
@@ -69,13 +79,14 @@ def process_single_episode(parquet_path, output_dir, fps, task_map):
         target_h = first_img.height
         
         print(f"  Generating H.264 video (fps={fps}) from {available_cams}...")
+        writer = None
         try:
-            writer = imageio.get_writer(video_path, fps=fps, codec='libx264', pixelformat='yuv420p')
+            writer = imageio.get_writer(video_path, fps=fps, codec="libx264", pixelformat="yuv420p")
             for i in range(len(df)):
                 frame_imgs = []
                 for cam in available_cams:
                     img_data = df[cam].iloc[i]
-                    img_bytes = img_data['bytes'] if isinstance(img_data, dict) else img_data
+                    img_bytes = img_data["bytes"] if isinstance(img_data, dict) else img_data
                     img = PIL.Image.open(io.BytesIO(img_bytes)).convert("RGB")
                     if img.height != target_h:
                         aspect_ratio = img.width / img.height
@@ -84,10 +95,12 @@ def process_single_episode(parquet_path, output_dir, fps, task_map):
                     frame_imgs.append(np.array(img))
                 combined_frame = np.hstack(frame_imgs)
                 writer.append_data(combined_frame)
-            writer.close()
             print(f"  Video saved: {video_path}")
         except Exception as e:
             print(f"  Error generating video: {e}")
+        finally:
+            if writer is not None:
+                writer.close()
 
     # 3. Action/State Curves Visualization
     print("  Plotting action and state curves...")
@@ -124,7 +137,7 @@ def process_single_episode(parquet_path, output_dir, fps, task_map):
     # Hide unused axes
     for j in range(i + 1, len(axes)):
         axes[j].axis('off')
-    
+
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
     plot_path = os.path.join(output_dir, f"{ep_id}_comparison.png")
     plt.savefig(plot_path)

@@ -4,16 +4,16 @@
 #SBATCH --error="/work/hdd/behe/WORLD-MODEL-TOUCH/slurm_outputs/train_video_libero/henry/slurm-%j.err"
 #SBATCH --partition=gpuH200x8
 #SBATCH --nodes=1
-#SBATCH --mem=300G
+#SBATCH --mem=480G
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=64
 #SBATCH --constraint="projects"
 #SBATCH --gpus-per-node=8
 #SBATCH --gpu-bind=closest
-#SBATCH --account=bche-delta-gpu
+#SBATCH --account=bdpp-delta-gpu
 #SBATCH --exclusive
 #SBATCH --requeue
-#SBATCH -t 00:01:00  # Video Libero Training Time
+#SBATCH -t 00:30:00  # Video Libero Training Time
 
 echo "🚀 Starting WM-Touch Video Libero Training"
 echo "============================================================="
@@ -23,7 +23,14 @@ echo "GPUs: $SLURM_GPUS_ON_NODE"
 echo "Memory: $SLURM_MEM_PER_NODE"
 echo "Time: $(date)"
 
+export PYTHONUNBUFFERED=1
+export PYTHONFAULTHANDLER=1
+export TORCH_SHOW_CPP_STACKTRACES=1
+export TORCH_DISTRIBUTED_DEBUG=DETAIL
+export NCCL_ASYNC_ERROR_HANDLING=1
+
+
 # Environment Setup
 source ~/.bashrc || echo "⚠️ Warning: bashrc loading had issues, continuing..."
 conda activate genie_envisioner
-bash scripts/train.sh main.py configs/ltx_model/libero/video_model_libero_henry.yaml
+bash scripts/train_henry.sh main.py configs/ltx_model/libero/video_model_libero_henry.yaml
