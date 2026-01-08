@@ -2,9 +2,9 @@
 #SBATCH --job-name="video_task_wipe"
 #SBATCH --output="/projects/bfxb/haorany7/WORLD-MODEL-TOUCH/slurm_outputs/train_video_task_wipe/slurm-%j.out"
 #SBATCH --error="/projects/bfxb/haorany7/WORLD-MODEL-TOUCH/slurm_outputs/train_video_task_wipe/slurm-%j.err"
-#SBATCH --partition=gpuH200x8
-#SBATCH --nodes=1
-#SBATCH --mem=480G
+#SBATCH --partition=gpuA100x4
+#SBATCH --nodes=2
+#SBATCH --mem=240G
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=64
 #SBATCH --constraint="projects"
