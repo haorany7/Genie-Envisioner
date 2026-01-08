@@ -4,7 +4,7 @@ report_to: None
 tracker_name: ltx_trainer
 
 logging_dir: logs
-output_dir: /work/hdd/bfxb/haorany7/WORLD-MODEL-TOUCH/outputs/task_wipe_video
+output_dir: /projects/bfxb/haorany7/WORLD-MODEL-TOUCH/outputs/task_wipe_video
 pretrained_model_name_or_path: /projects/behe/haorany7/WORLD-MODEL-TOUCH/pretrained_models/ltx_video
 
 ###
