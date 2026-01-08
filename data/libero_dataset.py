@@ -349,6 +349,16 @@ class CustomLeRobotDataset(Dataset):
                 video.append(video_reader.get_frame(float(idx)/fps))
             video = torch.from_numpy(np.stack(video)).permute(3, 0, 1, 2).contiguous()
             video = video.float()/255.
+            # IMPORTANT: views can have different native resolutions (e.g., 288x384 vs 480x640).
+            # We must resize each view BEFORE stacking across views, otherwise torch.stack will fail.
+            # We still run transform_video() later (it is a no-op size-wise if already resized).
+            try:
+                target_h, target_w = int(self.sample_size[0]), int(self.sample_size[1])
+                if video.shape[-2] != target_h or video.shape[-1] != target_w:
+                    video = self.pixel_transforms_resize(video)
+            except Exception:
+                # Best-effort: if something goes wrong, keep original; downstream may error with a clearer message.
+                pass
             video_reader.close()
             video_list.append(video)
         video_list = torch.stack(video_list, dim=1)
@@ -506,6 +516,10 @@ class CustomLeRobotDataset(Dataset):
                 video.append(img)
             video = torch.from_numpy(np.stack(video)).permute(3, 0, 1, 2).contiguous()
             video = video.float()/255.
+            # Resize per-view BEFORE stacking across views (native resolutions may differ).
+            target_h, target_w = int(sample_size[0]), int(sample_size[1])
+            if video.shape[-2] != target_h or video.shape[-1] != target_w:
+                video = specific_transforms_resize(video)
             video_list.append(video)
         videos = torch.stack(video_list, dim=1) 
         videos, _ = self.transform_video(
