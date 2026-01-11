@@ -3,6 +3,8 @@ import numpy as np
 import PIL.Image
 import io
 import os
+import matplotlib
+matplotlib.use('Agg') # Set backend to Agg for headless environments
 import matplotlib.pyplot as plt
 import argparse
 import imageio
@@ -120,19 +122,20 @@ def process_single_episode(parquet_path, output_dir, fps, task_map):
     axes = axes.flatten()
     
     # 将 Instruction 放在主标题中
-    fig.suptitle(f"Trajectory Check: {ep_id} {status_str}\nInstruction: {instruction}\nBlue: Action (GT) | Red Dash: State (Input)", fontsize=16)
+    cam_info = " | ".join([f"{cam}: {len(df)}" for cam in image_cols])
+    fig.suptitle(f"Trajectory Check: {ep_id} {status_str} (Total Frames: {len(df)})\nCameras: {cam_info}\nInstruction: {instruction}\nBlue: Action (GT) | Red Dash: State (Input)", fontsize=16)
     
     for i in range(n_dims):
         ax = axes[i]
-        ax.plot(actions[:, i], label='Action', color='blue', alpha=0.8, linewidth=2.5)
-        ax.plot(state[:, i], label='State', color='red', linestyle='--', alpha=0.8, linewidth=1.5)
+            ax.plot(actions[:, i], label='Action', color='blue', alpha=0.8, linewidth=2.5)
+            ax.plot(state[:, i], label='State', color='red', linestyle='--', alpha=0.8, linewidth=1.5)
         ax.set_title(f"Dimension {i}")
         ax.legend()
         ax.grid(True, linestyle=':', alpha=0.6)
         
-        diff = np.abs(np.diff(actions[:, i]))
-        if len(diff) > 0 and np.max(diff) > 1.0:
-            ax.set_facecolor('#ffeeee')
+            diff = np.abs(np.diff(actions[:, i]))
+            if len(diff) > 0 and np.max(diff) > 1.0:
+                ax.set_facecolor('#ffeeee')
     
     # Hide unused axes
     for j in range(i + 1, len(axes)):

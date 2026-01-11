@@ -10,10 +10,10 @@
 #SBATCH --constraint="projects"
 #SBATCH --gpus-per-node=4
 #SBATCH --gpu-bind=closest
-#SBATCH --account=behe-delta-gpu
+#SBATCH --account=bdpp-delta-gpu
 #SBATCH --exclusive
 #SBATCH --requeue
-#SBATCH -t 01:00:00
+#SBATCH -t 48:00:00
 
 echo "🚀 Starting WM-Touch 2-Node Video Task Wipe Training"
 echo "============================================================="
