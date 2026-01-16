@@ -25,4 +25,10 @@ echo "Time: $(date)"
 # Environment Setup
 source ~/.bashrc || echo "⚠️ Warning: bashrc loading had issues, continuing..."
 conda activate genie_envisioner
+
+# Make sure log dir exists (Slurm will fail if parent dirs don't exist)
+mkdir -p /work/hdd/behe/WORLD-MODEL-TOUCH/slurm_outputs/train_video_libero
+
+# Make sure we run from the GE repo root so relative paths resolve
+cd /projects/behe/haorany7/WORLD-MODEL-TOUCH/Reimplementation/Genie-Envisioner
 bash scripts/train.sh main.py configs/ltx_model/libero/video_model_libero.yaml

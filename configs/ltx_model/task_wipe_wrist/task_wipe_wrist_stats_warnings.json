@@ -1,0 +1,14 @@
+[
+  {
+    "episode": "/work/nvme/behe/WORLD-MODEL-TOUCH/task_wipe_wrist_lerobot/data/chunk-000/episode_000003.parquet",
+    "timestep": 485,
+    "type": "position",
+    "jump_magnitude": 0.11004115641117096,
+    "threshold": 0.1,
+    "delta": [
+      -0.08037400245666504,
+      -0.0748559832572937,
+      -0.006757020950317383
+    ]
+  }
+]

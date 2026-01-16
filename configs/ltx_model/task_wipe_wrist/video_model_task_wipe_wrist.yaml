@@ -4,8 +4,7 @@ report_to: None
 tracker_name: ltx_trainer
 
 logging_dir: logs
-# Put outputs on NVMe for faster checkpointing / logging and to avoid HDD quota pressure.
-output_dir: /work/nvme/behe/WORLD-MODEL-TOUCH/outputs/libero_video
+output_dir: /work/nvme/behe/WORLD-MODEL-TOUCH/outputs/task_wipe_wrist_video
 pretrained_model_name_or_path: /projects/behe/haorany7/WORLD-MODEL-TOUCH/pretrained_models/ltx_video
 
 ###
@@ -117,42 +116,41 @@ diffusion_model:
 
 data:
   train:
-    # New LeRobot dataset converted from openvla/modified_libero_rlds
-    data_roots: ["/work/nvme/behe/lerobot_new/your_hf_username/libero"]
-    domains: ["libero"]
-    sample_size: [256, 256]
-    sample_n_frames: 500
+    data_roots: ["/work/nvme/behe/WORLD-MODEL-TOUCH/task_wipe_wrist_lerobot"]
+    domains: ["task_wipe_wrist"]
+    sample_size: [192, 256]
+    sample_n_frames: 900
     preprocess :  'resize'
-    valid_cam :  ['image', 'wrist_image']
+    valid_cam :  ['realsense_0', 'realsense_2']
     chunk: 9
-    action_chunk: 36
+    action_chunk: 54
     n_previous: 4
     previous_pick_mode: 'random'
     random_crop: False
     ignore_seek: False
     action_type: "absolute"
-    action_space: "eef"
-    stat_file: configs/ltx_model/libero/libero_all.json
+    action_space: "joint"
+    stat_file: configs/ltx_model/task_wipe_wrist/task_wipe_wrist_stats.json
     state_key: state
     action_key: actions
     extra_parquet_index: False
-    repeat_dataset: 1
+    repeat_dataset: 1000
   val:
-    data_roots: ["/work/nvme/behe/lerobot_new/your_hf_username/libero"]
-    domains: ["libero"]
-    sample_size: [256, 256]
-    sample_n_frames: 500
+    data_roots: ["/work/nvme/behe/WORLD-MODEL-TOUCH/task_wipe_wrist_lerobot"]
+    domains: ["task_wipe_wrist"]
+    sample_size: [192, 256]
+    sample_n_frames: 900
     preprocess :  'resize'
-    valid_cam : ['image', 'wrist_image']
+    valid_cam : ['realsense_0', 'realsense_2']
     chunk: 9
-    action_chunk: 36
+    action_chunk: 54
     n_previous: 4
     previous_pick_mode: 'random'
     random_crop: False
     ignore_seek: False
     action_type: "absolute"
-    action_space: "eef"
-    stat_file: configs/ltx_model/libero/libero_all.json
+    action_space: "joint"
+    stat_file: configs/ltx_model/task_wipe_wrist/task_wipe_wrist_stats.json
     state_key: state
     action_key: actions
     extra_parquet_index: False

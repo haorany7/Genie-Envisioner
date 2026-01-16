@@ -127,15 +127,15 @@ def process_single_episode(parquet_path, output_dir, fps, task_map):
     
     for i in range(n_dims):
         ax = axes[i]
-            ax.plot(actions[:, i], label='Action', color='blue', alpha=0.8, linewidth=2.5)
-            ax.plot(state[:, i], label='State', color='red', linestyle='--', alpha=0.8, linewidth=1.5)
+        ax.plot(actions[:, i], label='Action', color='blue', alpha=0.8, linewidth=2.5)
+        ax.plot(state[:, i], label='State', color='red', linestyle='--', alpha=0.8, linewidth=1.5)
         ax.set_title(f"Dimension {i}")
         ax.legend()
         ax.grid(True, linestyle=':', alpha=0.6)
         
-            diff = np.abs(np.diff(actions[:, i]))
-            if len(diff) > 0 and np.max(diff) > 1.0:
-                ax.set_facecolor('#ffeeee')
+        diff = np.abs(np.diff(actions[:, i]))
+        if len(diff) > 0 and np.max(diff) > 1.0:
+            ax.set_facecolor('#ffeeee')
     
     # Hide unused axes
     for j in range(i + 1, len(axes)):
