@@ -28,6 +28,7 @@ conda activate genie_envisioner
 
 # Make sure log dir exists
 mkdir -p /work/hdd/behe/WORLD-MODEL-TOUCH/slurm_outputs/train_video_task_wipe_wrist
+mkdir -p /work/nvme/behe/WORLD-MODEL-TOUCH/outputs/task_wipe_wrist_video
 
 # Make sure we run from the GE repo root
 cd /projects/behe/haorany7/WORLD-MODEL-TOUCH/Reimplementation/Genie-Envisioner
