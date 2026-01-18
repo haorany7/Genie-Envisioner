@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # 创建必要的目录
-mkdir -p /data/vtam/slurm_outputs/train_action_task_wipe_wrist_gelsight
+mkdir -p /data/vtam/slurm_outputs/train_action_task_wipe_wrist
 
-echo "🚀 Starting WM-Touch Action Task Wipe Wrist Gelsight Training (Manual Mode)"
+echo "🚀 Starting WM-Touch Action Task Wipe Wrist Training (Manual Mode)"
 echo "============================================================="
 echo "Time: $(date)"
 
@@ -39,8 +39,8 @@ fi
 conda activate genie_envisioner
 
 # 指定 GPU 并启动训练，同时记录日志
-export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0,1,2,3}
-export MASTER_PORT=${MASTER_PORT:-29500}
+export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-4,5,6,7}
+export MASTER_PORT=${MASTER_PORT:-29501}
 # Work around NCCL collective hang on this node by disabling P2P.
 export NCCL_P2P_DISABLE=1
 export TORCH_NCCL_BLOCKING_WAIT=1
@@ -49,5 +49,5 @@ echo "CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
 echo "NCCL_P2P_DISABLE=$NCCL_P2P_DISABLE"
 nvidia-smi -L || true
 bash scripts/train_xz.sh main.py \
-    configs/ltx_model/task_wipe_wrist/action_model_task_wipe_wrist_gelsight_xinzhuo.yaml \
-    2>&1 | tee /data/vtam/slurm_outputs/train_action_task_wipe_wrist_gelsight/manual_run_$(date +%Y%m%d_%H%M%S).log
+    configs/ltx_model/task_wipe_wrist/action_model_task_wipe_wrist_xinzhuo.yaml \
+    2>&1 | tee /data/vtam/slurm_outputs/train_action_task_wipe_wrist/manual_run_$(date +%Y%m%d_%H%M%S).log
