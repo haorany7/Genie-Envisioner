@@ -427,6 +427,7 @@ class LTXVideoTransformer3DModel(ModelMixin, ConfigMixin, FromOriginalModelMixin
 
         self.gradient_checkpointing = False
 
+        self.tactile_enhanced = kwargs.get("tactile_enhanced", False)
 
         self.action_expert = action_expert
         if self.action_expert:
@@ -564,6 +565,10 @@ class LTXVideoTransformer3DModel(ModelMixin, ConfigMixin, FromOriginalModelMixin
                     ### action_hidden_states: random actions, b v c
                     ### 
                     final_hidden_states = rearrange(hidden_states, '(b v) l c -> b (v l) c', v=n_view)
+                    tactile_encoder_hidden_states = None
+                    if self.tactile_enhanced and n_view == 3:
+                        tmp_hidden = rearrange(hidden_states, '(b v) l c -> b v l c', v=n_view)
+                        tactile_encoder_hidden_states = tmp_hidden[:, 2]
                     action_hidden_states = torch.utils.checkpoint.checkpoint(
                         create_custom_forward(self.action_blocks[block_idx]),
                         action_hidden_states,
@@ -571,6 +576,7 @@ class LTXVideoTransformer3DModel(ModelMixin, ConfigMixin, FromOriginalModelMixin
                         action_temb,
                         action_rotary_emb,
                         None,
+                        tactile_encoder_hidden_states,
                         **ckpt_kwargs,
                     )
             else:
@@ -596,12 +602,16 @@ class LTXVideoTransformer3DModel(ModelMixin, ConfigMixin, FromOriginalModelMixin
                     ### action_hidden_states: random actions, b v c
                     ### 
                     final_hidden_states = rearrange(hidden_states, '(b v) l c -> b (v l) c', v=n_view)
-                    
+                    tactile_encoder_hidden_states = None
+                    if self.tactile_enhanced and n_view == 3:
+                        tmp_hidden = rearrange(hidden_states, '(b v) l c -> b v l c', v=n_view)
+                        tactile_encoder_hidden_states = tmp_hidden[:, 2]
                     action_hidden_states = self.action_blocks[block_idx](
                         hidden_states=action_hidden_states,
                         encoder_hidden_states=final_hidden_states,
                         temb=action_temb,
                         rotary_emb=action_rotary_emb,
+                        attn3_hidden_states=tactile_encoder_hidden_states,
                     )
 
                     

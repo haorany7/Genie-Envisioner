@@ -96,7 +96,6 @@ class ActionTransformerBlock(nn.Module):
         attention_out_bias: bool = True,
         eps: float = 1e-6,
         elementwise_affine: bool = False,
-        attn3_cross_attention_dim = 2048,
         num_latent_downsample_block = 0,
     ):
         super().__init__()
@@ -109,6 +108,11 @@ class ActionTransformerBlock(nn.Module):
         self.norm2 = RMSNorm(dim, eps=eps, elementwise_affine=elementwise_affine)
         self.attn2 = attention_class(
             **(attention_args[1]),
+        )
+
+        self.norm3 = RMSNorm(dim, eps=eps, elementwise_affine=elementwise_affine)
+        self.attn3 = attention_class(
+            **(attention_args[2]),
         )
 
         self.ff = FeedForward(dim, activation_fn=activation_fn)
@@ -159,6 +163,16 @@ class ActionTransformerBlock(nn.Module):
             n_view=1,
         )
         hidden_states = hidden_states + attn_hidden_states
+
+        if attn3_hidden_states is not None:
+            attn_hidden_states = self.attn3(
+                self.norm3(hidden_states),
+                encoder_hidden_states=attn3_hidden_states,
+                image_rotary_emb=None,
+                attention_mask=None,
+                n_view=1,
+            )
+            hidden_states = hidden_states + attn_hidden_states
 
         norm_hidden_states = self.norm2(hidden_states) * (1 + scale_mlp) + shift_mlp
         
@@ -223,6 +237,17 @@ def add_action_expert(
         dim_head=action_attention_head_dim,
         bias=attention_bias,
         cross_attention_dim=None,
+        out_bias=attention_out_bias,
+        qk_norm=qk_norm,
+        processor=attention_processor,
+    ))
+    attention_args.append(dict(
+        query_dim=self.action_inner_dim,
+        heads=action_num_attention_heads,
+        kv_heads=action_num_attention_heads,
+        dim_head=action_attention_head_dim,
+        bias=attention_bias,
+        cross_attention_dim=inner_dim,
         out_bias=attention_out_bias,
         qk_norm=qk_norm,
         processor=attention_processor,
