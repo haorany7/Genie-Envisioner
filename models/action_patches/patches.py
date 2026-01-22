@@ -111,9 +111,9 @@ class ActionTransformerBlock(nn.Module):
         )
 
         self.norm3 = RMSNorm(dim, eps=eps, elementwise_affine=elementwise_affine)
-            self.attn3 = attention_class(
-                **(attention_args[2]),
-            )
+        self.attn3 = attention_class(
+            **(attention_args[2]),
+        )
 
         self.ff = FeedForward(dim, activation_fn=activation_fn)
 

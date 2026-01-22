@@ -147,7 +147,7 @@ data:
     extra_parquet_index: False
     repeat_dataset: 1000
     force_field_ref_nframes: 5
-    force_field_ref_cache_path: "/data/vtam/task_wipe_wrist_gelsight_ref.npy"
+    force_field_ref_cache_path: "configs/ltx_model/task_wipe_wrist/task_wipe_wrist_gelsight_ref.npy"
   val:
     data_roots: ["/data/vtam/task_wipe_wrist_lerobot"]
     domains: ["task_wipe_wrist"]
@@ -168,7 +168,7 @@ data:
     action_key: actions
     extra_parquet_index: False
     force_field_ref_nframes: 5
-    force_field_ref_cache_path: "/data/vtam/task_wipe_wrist_gelsight_ref.npy"
+    force_field_ref_cache_path: "configs/ltx_model/task_wipe_wrist/task_wipe_wrist_gelsight_ref.npy"
 
 
 use_color_jitter: true

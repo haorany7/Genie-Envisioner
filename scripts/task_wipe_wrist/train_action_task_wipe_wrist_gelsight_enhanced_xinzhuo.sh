@@ -39,8 +39,8 @@ fi
 conda activate genie_envisioner
 
 # 指定 GPU 并启动训练，同时记录日志
-export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-0,1,2,3}
-export MASTER_PORT=${MASTER_PORT:-29500}
+export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-4,5,6,7}
+export MASTER_PORT=${MASTER_PORT:-29501}
 # Work around NCCL collective hang on this node by disabling P2P.
 export NCCL_P2P_DISABLE=1
 export TORCH_NCCL_BLOCKING_WAIT=1
