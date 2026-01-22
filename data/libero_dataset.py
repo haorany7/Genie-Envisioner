@@ -450,55 +450,21 @@ class CustomLeRobotDataset(Dataset):
 
 
     def _compute_gelsight_ref_gray(self):
-        # Use cached reference if available
-        if self.force_field_ref_cache_path is not None and os.path.exists(self.force_field_ref_cache_path):
-            try:
-                cached = np.load(self.force_field_ref_cache_path)
-                if cached.ndim == 2:
-                    return cached.astype(np.uint8)
-            except Exception:
-                pass
+        if self.force_field_ref_cache_path is None:
+            raise RuntimeError(
+                "force_field_ref_cache_path is required. "
+                "Run scripts/compute_gelsight_ref_gray.py to generate the cache."
+            )
 
-        if 'gelsight' not in self.valid_cam:
-            return None
+        if os.path.exists(self.force_field_ref_cache_path):
+            cached = np.load(self.force_field_ref_cache_path)
+            if cached.ndim == 2:
+                return cached.astype(np.uint8)
 
-        gelsight_key = 'gelsight'
-        ref_sum = None
-        ref_count = 0
-
-        for info in tqdm(self.dataset, desc="Computing gelsight ref"):
-            parquet_path = info[2]
-            try:
-                data = pd.read_parquet(parquet_path)
-                cam_img_bytes = data[gelsight_key].to_list()
-                for idx in range(min(self.force_field_ref_nframes, len(cam_img_bytes))):
-                    img = Image.open(io.BytesIO(cam_img_bytes[idx]["bytes"]))
-                    frame = np.array(img)
-                    if frame.ndim == 3:
-                        frame_gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
-                    else:
-                        frame_gray = frame
-                    if ref_sum is None:
-                        ref_sum = frame_gray.astype(np.float64)
-                    else:
-                        ref_sum += frame_gray.astype(np.float64)
-                    ref_count += 1
-            except Exception:
-                continue
-
-        if ref_sum is None or ref_count == 0:
-            return None
-
-        ref_gray = (ref_sum / ref_count).astype(np.uint8)
-
-        if self.force_field_ref_cache_path is not None:
-            try:
-                os.makedirs(os.path.dirname(self.force_field_ref_cache_path), exist_ok=True)
-                np.save(self.force_field_ref_cache_path, ref_gray)
-            except Exception:
-                pass
-
-        return ref_gray
+        raise RuntimeError(
+            f"Missing gelsight ref cache at {self.force_field_ref_cache_path}. "
+            "Run scripts/compute_gelsight_ref_gray.py to generate it."
+        )
 
 
     def _get_gelsight_ref_gray(self):
@@ -591,20 +557,18 @@ class CustomLeRobotDataset(Dataset):
         videos, _ = self.transform_video(
             videos, specific_transforms_resize, None, sample_size
         )
-        videos = self.normalize_video(videos, specific_transforms_norm)
 
-        # Force Field Extraction
+        # Force Field Extraction (use raw [0,1] images before normalization)
         tactile_force_field = None
         if 'gelsight' in self.valid_cam:
-            # Find the index of gelsight in valid_cam
             gelsight_idx = self.valid_cam.index('gelsight')
-            # Extract force field from the gelsight view (shape: c, v, t, h, w)
-            gelsight_video = videos[:, gelsight_idx] # shape: c, t, h, w
-            # extract_force_field_from_video expects [T, C, H, W]
+            gelsight_video = videos[:, gelsight_idx]  # c, t, h, w
             ref_gray = self._get_gelsight_ref_gray()
             tactile_force_field = extract_force_field_from_video(
                 gelsight_video.permute(1, 0, 2, 3), ref_gray=ref_gray
             )
+
+        videos = self.normalize_video(videos, specific_transforms_norm)
 
         return videos, action, caption, state, tactile_force_field
 

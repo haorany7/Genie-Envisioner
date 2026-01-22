@@ -599,6 +599,8 @@ class CustomPipeline(DiffusionPipeline, FromSingleFileMixin):
         n_chunk: int = 1,
         show_progress: bool = False,
         tactile_force_field: torch.Tensor = None,
+        force_field_ref_cache_path: Optional[str] = None,
+        force_field_ref_nframes: int = 10,
         **kwargs,
     ):
         r"""
@@ -697,16 +699,28 @@ class CustomPipeline(DiffusionPipeline, FromSingleFileMixin):
                 bv, c, t, _, _ = image.shape
                 batch_size = bv // n_view
                 tmp_image = rearrange(image, '(b v) c t h w -> b v c t h w', v=n_view)
-                gelsight_video = tmp_image[:, 2]  # b, c, t, h, w
+                gelsight_video = tmp_image[:, 2]  # b, c, t, h, w (range -1..1)
+                gelsight_video_raw = ((gelsight_video + 1) / 2).clamp(0, 1)
+
+                # Determine reference frame (load from cache only)
+                if force_field_ref_cache_path is None or not os.path.exists(force_field_ref_cache_path):
+                    raise RuntimeError(
+                        "Missing force_field_ref_cache_path for inference. "
+                        "Run scripts/compute_gelsight_ref_gray.py to generate the cache."
+                    )
+                ref_gray = np.load(force_field_ref_cache_path).astype(np.uint8)
 
                 # Align with state: use the last memory frame only
                 ref_idx = max(0, min(n_prev - 1, t - 1))
-                gelsight_frame = gelsight_video[:, :, ref_idx]  # b, c, h, w
+                gelsight_frame = gelsight_video_raw[:, :, ref_idx]  # b, c, h, w
 
                 # extract_force_field_from_video expects [T, C, H, W]
                 force_fields = []
                 for b in range(batch_size):
-                    ff = extract_force_field_from_video(gelsight_frame[b].unsqueeze(0))
+                    ff = extract_force_field_from_video(
+                        gelsight_frame[b].unsqueeze(0),
+                        ref_gray=ref_gray[b].cpu().numpy() if isinstance(ref_gray, torch.Tensor) else ref_gray,
+                    )
                     force_fields.append(ff)
                 tactile_force_field = torch.stack(force_fields).to(device=device, dtype=self.transformer.dtype)
 
@@ -905,7 +919,7 @@ class CustomPipeline(DiffusionPipeline, FromSingleFileMixin):
                         tactile_force_field_in = torch.cat([tactile_force_field, tactile_force_field])
                     else:
                         tactile_force_field_in = tactile_force_field
-
+                    
                     noise_pred = self.transformer(
                         hidden_states=latent_model_input,
                         encoder_hidden_states=prompt_embeds,
