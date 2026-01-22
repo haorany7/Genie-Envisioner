@@ -30,6 +30,7 @@ from data.utils.statistics import StatisticInfo
 
 from utils import zero_rank_print
 from data.utils.utils import intrinsic_transform, gen_crop_config, intrin_crop_transform
+from utils.tactile_utils import extract_force_field_from_video
 
 
 def load_jsonl(jsonl_path):
@@ -76,6 +77,8 @@ class CustomLeRobotDataset(Dataset):
         valid_act_dim = None,
         valid_sta_dim = None,
         repeat_dataset: int = 1,
+        force_field_ref_nframes: int = 5,
+        force_field_ref_cache_path: str = None,
     ):
         """
         data_roots:              directory of LeRoBot dataset
@@ -282,6 +285,11 @@ class CustomLeRobotDataset(Dataset):
 
         self.ignore_seek = ignore_seek
 
+        # force field reference settings
+        self.force_field_ref_nframes = force_field_ref_nframes
+        self.force_field_ref_cache_path = force_field_ref_cache_path
+        self.gelsight_ref_gray = None
+
     def get_frame_indexes(self, total_frames, ):
         """
         select self.n_previous memory frames and self.action_chunk prediction frmaes
@@ -441,6 +449,64 @@ class CustomLeRobotDataset(Dataset):
         return recap
 
 
+    def _compute_gelsight_ref_gray(self):
+        # Use cached reference if available
+        if self.force_field_ref_cache_path is not None and os.path.exists(self.force_field_ref_cache_path):
+            try:
+                cached = np.load(self.force_field_ref_cache_path)
+                if cached.ndim == 2:
+                    return cached.astype(np.uint8)
+            except Exception:
+                pass
+
+        if 'gelsight' not in self.valid_cam:
+            return None
+
+        gelsight_key = 'gelsight'
+        ref_sum = None
+        ref_count = 0
+
+        for info in tqdm(self.dataset, desc="Computing gelsight ref"):
+            parquet_path = info[2]
+            try:
+                data = pd.read_parquet(parquet_path)
+                cam_img_bytes = data[gelsight_key].to_list()
+                for idx in range(min(self.force_field_ref_nframes, len(cam_img_bytes))):
+                    img = Image.open(io.BytesIO(cam_img_bytes[idx]["bytes"]))
+                    frame = np.array(img)
+                    if frame.ndim == 3:
+                        frame_gray = cv2.cvtColor(frame, cv2.COLOR_RGB2GRAY)
+                    else:
+                        frame_gray = frame
+                    if ref_sum is None:
+                        ref_sum = frame_gray.astype(np.float64)
+                    else:
+                        ref_sum += frame_gray.astype(np.float64)
+                    ref_count += 1
+            except Exception:
+                continue
+
+        if ref_sum is None or ref_count == 0:
+            return None
+
+        ref_gray = (ref_sum / ref_count).astype(np.uint8)
+
+        if self.force_field_ref_cache_path is not None:
+            try:
+                os.makedirs(os.path.dirname(self.force_field_ref_cache_path), exist_ok=True)
+                np.save(self.force_field_ref_cache_path, ref_gray)
+            except Exception:
+                pass
+
+        return ref_gray
+
+
+    def _get_gelsight_ref_gray(self):
+        if self.gelsight_ref_gray is None:
+            self.gelsight_ref_gray = self._compute_gelsight_ref_gray()
+        return self.gelsight_ref_gray
+
+
 
     def get_batch(self, idx):
         
@@ -527,7 +593,20 @@ class CustomLeRobotDataset(Dataset):
         )
         videos = self.normalize_video(videos, specific_transforms_norm)
 
-        return videos, action, caption, state
+        # Force Field Extraction
+        tactile_force_field = None
+        if 'gelsight' in self.valid_cam:
+            # Find the index of gelsight in valid_cam
+            gelsight_idx = self.valid_cam.index('gelsight')
+            # Extract force field from the gelsight view (shape: c, v, t, h, w)
+            gelsight_video = videos[:, gelsight_idx] # shape: c, t, h, w
+            # extract_force_field_from_video expects [T, C, H, W]
+            ref_gray = self._get_gelsight_ref_gray()
+            tactile_force_field = extract_force_field_from_video(
+                gelsight_video.permute(1, 0, 2, 3), ref_gray=ref_gray
+            )
+
+        return videos, action, caption, state, tactile_force_field
 
 
 
@@ -538,14 +617,14 @@ class CustomLeRobotDataset(Dataset):
 
     def __getitem__(self, idx):        
         
-        # video, actions, caption, state = self.get_batch(idx)
+        # video, actions, caption, state, tactile_force_field = self.get_batch(idx)
 
         if self.fix_epiidx is not None:
-            video, actions, caption, state = self.get_batch(self.fix_epiidx)
+            video, actions, caption, state, tactile_force_field = self.get_batch(self.fix_epiidx)
         else:
             while True:
                 try:
-                    video, actions, caption, state = self.get_batch(idx)
+                    video, actions, caption, state, tactile_force_field = self.get_batch(idx)
                     break
                 except:
                     ### print error information to debug
@@ -558,6 +637,7 @@ class CustomLeRobotDataset(Dataset):
             actions=actions,
             caption=caption,
             state=state,
+            tactile_force_field=tactile_force_field,
         )
         return sample
 

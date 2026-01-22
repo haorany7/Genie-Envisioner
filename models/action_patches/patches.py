@@ -184,6 +184,19 @@ class ActionTransformerBlock(nn.Module):
         return hidden_states
 
 
+class ForceFieldEncoder(nn.Module):
+    def __init__(self, input_dim, output_dim):
+        super().__init__()
+        self.mlp = nn.Sequential(
+            nn.Linear(input_dim, output_dim),
+            nn.GELU(),
+            nn.Linear(output_dim, output_dim),
+            nn.LayerNorm(output_dim)
+        )
+    def forward(self, x):
+        # x: [B, T, input_dim]
+        return self.mlp(x)
+
 
 def add_action_expert(
     self,
@@ -290,6 +303,12 @@ def add_action_expert(
         self.action_proj_extra = nn.Linear(self.action_inner_dim, self.action_inner_dim)
 
     self.action_norm_out = nn.LayerNorm(self.action_inner_dim, eps=1e-6, elementwise_affine=False)
+
+    # --- Force Field Enhancement ---
+    self.use_force_field = kwargs.get("use_force_field", False)
+    if self.use_force_field:
+        force_field_input_dim = kwargs.get("force_field_input_dim", 189)
+        self.force_field_module = ForceFieldEncoder(force_field_input_dim, inner_dim)
 
 
 def preprocessing_action_states(

@@ -34,6 +34,7 @@ from diffusers.utils import BaseOutput
 
 from einops import rearrange
 from utils.data_utils import gen_noise_from_condition_frame_latent
+from utils.tactile_utils import extract_force_field_from_video
 
 if is_torch_xla_available():
     import torch_xla.core.xla_model as xm
@@ -597,6 +598,7 @@ class CustomPipeline(DiffusionPipeline, FromSingleFileMixin):
         pixel_wise_timestep: bool = True,
         n_chunk: int = 1,
         show_progress: bool = False,
+        tactile_force_field: torch.Tensor = None,
         **kwargs,
     ):
         r"""
@@ -686,6 +688,28 @@ class CustomPipeline(DiffusionPipeline, FromSingleFileMixin):
 
         # pre-compute latent shape
         self.transformer.eval()
+
+        # Force Field Extraction if needed
+        if getattr(self.transformer, "use_force_field", False) and tactile_force_field is None:
+            # Extract from the gelsight view (assumed to be view 2 if n_view == 3)
+            if n_view == 3:
+                # image shape: (bv, c, t, h, w) where bv = batch_size * n_view
+                bv, c, t, _, _ = image.shape
+                batch_size = bv // n_view
+                tmp_image = rearrange(image, '(b v) c t h w -> b v c t h w', v=n_view)
+                gelsight_video = tmp_image[:, 2]  # b, c, t, h, w
+
+                # Align with state: use the last memory frame only
+                ref_idx = max(0, min(n_prev - 1, t - 1))
+                gelsight_frame = gelsight_video[:, :, ref_idx]  # b, c, h, w
+
+                # extract_force_field_from_video expects [T, C, H, W]
+                force_fields = []
+                for b in range(batch_size):
+                    ff = extract_force_field_from_video(gelsight_frame[b].unsqueeze(0))
+                    force_fields.append(ff)
+                tactile_force_field = torch.stack(force_fields).to(device=device, dtype=self.transformer.dtype)
+
         latent_num_frames = n_prev + chunk
         latent_height = height // self.vae_spatial_compression_ratio
         latent_width = width // self.vae_spatial_compression_ratio
@@ -876,6 +900,12 @@ class CustomPipeline(DiffusionPipeline, FromSingleFileMixin):
                         timestep = timestep.unsqueeze(-1) * (1 - cond_indicator)
                         
                     
+                    # duplicate force field for CFG
+                    if self.do_classifier_free_guidance and tactile_force_field is not None:
+                        tactile_force_field_in = torch.cat([tactile_force_field, tactile_force_field])
+                    else:
+                        tactile_force_field_in = tactile_force_field
+
                     noise_pred = self.transformer(
                         hidden_states=latent_model_input,
                         encoder_hidden_states=prompt_embeds,
@@ -897,6 +927,7 @@ class CustomPipeline(DiffusionPipeline, FromSingleFileMixin):
                         video_attention_mask=video_attention_mask,
                         history_action_state=history_action_state_in,
                         condition_mask=conditioning_mask,
+                        tactile_force_field=tactile_force_field_in,
                     )[0]
 
 

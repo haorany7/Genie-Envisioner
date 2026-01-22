@@ -647,6 +647,13 @@ class Trainer:
                         weighting_scheme=self.args.flow_weighting_scheme, sigmas=sigmas
                     ).reshape(-1, 1, 1).repeat(1, 1, latents.size(-1))
 
+                    tactile_force_field = batch.get('tactile_force_field', None)
+                    if tactile_force_field is not None:
+                        # align with state: take the last memory frame
+                        if tactile_force_field.shape[1] != 1:
+                            tactile_force_field = tactile_force_field[:, mem_size-1:mem_size]
+                        tactile_force_field = tactile_force_field.to(accelerator.device, dtype=weight_dtype)
+
                     pred_all = forward_pass(
                         model=self.diffusion_model, 
                         timesteps=timesteps, 
@@ -664,6 +671,7 @@ class Trainer:
                         video_attention_mask=video_attention_mask,
                         history_action_state=act_state,
                         condition_mask=conditioning_mask,
+                        tactile_force_field=tactile_force_field,
                     )['latents']
 
                     if self.args.train_mode == 'all' or self.args.train_mode == 'video_only':

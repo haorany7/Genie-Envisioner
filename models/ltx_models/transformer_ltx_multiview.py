@@ -428,6 +428,7 @@ class LTXVideoTransformer3DModel(ModelMixin, ConfigMixin, FromOriginalModelMixin
         self.gradient_checkpointing = False
 
         self.tactile_enhanced = kwargs.get("tactile_enhanced", False)
+        self.use_force_field = kwargs.get("use_force_field", False)
 
         self.action_expert = action_expert
         if self.action_expert:
@@ -463,6 +464,7 @@ class LTXVideoTransformer3DModel(ModelMixin, ConfigMixin, FromOriginalModelMixin
         return_dict: bool = True,
         action_states: torch.Tensor = None,
         action_timestep: torch.LongTensor = None,
+        tactile_force_field: torch.Tensor = None,
         return_video: bool = True,
         return_action: bool = False,
         store_buffer=False,
@@ -565,10 +567,15 @@ class LTXVideoTransformer3DModel(ModelMixin, ConfigMixin, FromOriginalModelMixin
                     ### action_hidden_states: random actions, b v c
                     ### 
                     final_hidden_states = rearrange(hidden_states, '(b v) l c -> b (v l) c', v=n_view)
+                    
                     tactile_encoder_hidden_states = None
-                    if self.tactile_enhanced and n_view == 3:
-                        tmp_hidden = rearrange(hidden_states, '(b v) l c -> b v l c', v=n_view)
-                        tactile_encoder_hidden_states = tmp_hidden[:, 2]
+                    if self.tactile_enhanced:
+                        if self.use_force_field and tactile_force_field is not None:
+                            tactile_encoder_hidden_states = self.force_field_module(tactile_force_field)
+                        elif n_view == 3:
+                            tmp_hidden = rearrange(hidden_states, '(b v) l c -> b v l c', v=n_view)
+                            tactile_encoder_hidden_states = tmp_hidden[:, 2]
+
                     action_hidden_states = torch.utils.checkpoint.checkpoint(
                         create_custom_forward(self.action_blocks[block_idx]),
                         action_hidden_states,
@@ -602,10 +609,15 @@ class LTXVideoTransformer3DModel(ModelMixin, ConfigMixin, FromOriginalModelMixin
                     ### action_hidden_states: random actions, b v c
                     ### 
                     final_hidden_states = rearrange(hidden_states, '(b v) l c -> b (v l) c', v=n_view)
+                    
                     tactile_encoder_hidden_states = None
-                    if self.tactile_enhanced and n_view == 3:
-                        tmp_hidden = rearrange(hidden_states, '(b v) l c -> b v l c', v=n_view)
-                        tactile_encoder_hidden_states = tmp_hidden[:, 2]
+                    if self.tactile_enhanced:
+                        if self.use_force_field and tactile_force_field is not None:
+                            tactile_encoder_hidden_states = self.force_field_module(tactile_force_field)
+                        elif n_view == 3:
+                            tmp_hidden = rearrange(hidden_states, '(b v) l c -> b v l c', v=n_view)
+                            tactile_encoder_hidden_states = tmp_hidden[:, 2]
+
                     action_hidden_states = self.action_blocks[block_idx](
                         hidden_states=action_hidden_states,
                         encoder_hidden_states=final_hidden_states,
