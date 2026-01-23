@@ -141,7 +141,8 @@ class MVActor:
         self.n_prev = n_prev
 
         if threshold is None:
-            self.threshold = args.threshold
+            # Some deployment YAMLs don't include `threshold`. Default to 1 (update every step).
+            self.threshold = getattr(args, "threshold", 1)
         else:
             self.threshold = threshold
             

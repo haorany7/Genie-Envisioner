@@ -175,3 +175,11 @@ logs/
 output/
 evaluation_results/
 evaluation_results/*
+
+# Local experiment outputs (do not commit)
+eval_results_ge_20000/
+ge_inference_logs/
+checkpoints/
+
+# Debug images generated during deployment
+ge_debug.jpg

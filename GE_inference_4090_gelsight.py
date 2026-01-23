@@ -20,9 +20,9 @@ from xarm.wrapper import XArmAPI
 from web_infer_utils.MVActor import MVActor
 
 # --- GE 模型配置 ---
-GE_CONFIG = "configs/ltx_model/task_wipe_wrist/action_model_task_wipe_wrist_deployment.yaml"
-# 指向我们找到的本地权重
-GE_WEIGHTS = "checkpoints/task_wipe_wrist_action/2026_01_18_08_51_42/step_20000/diffusion_pytorch_model.safetensors"
+GE_CONFIG = "configs/ltx_model/task_wipe_wrist/action_model_task_wipe_wrist_gelsight_deploment.yaml"
+# 指向 gelsight 训练出来的权重（先把 step_20000 目录 rsync 到本机 checkpoints 下）
+GE_WEIGHTS = "checkpoints/task_wipe_wrist_gelsight_action/2026_01_18_08_57_26/step_20000/diffusion_pytorch_model.safetensors"
 DOMAIN_NAME = "task_wipe_wrist" # 对应 stats.json 中的前缀
 NUM_INFERENCE_STEPS = 10  # 采样步数，越大越准但越慢
 THRESHOLD = 20  # 参考 LIBERO 脚本: 控制 temporal buffer 何时“推进”一次（单位：执行步数累积）
@@ -31,6 +31,8 @@ THRESHOLD = 20  # 参考 LIBERO 脚本: 控制 temporal buffer 何时“推进�
 ROBOT_IP = "192.168.1.209"
 BASE_CAM_INDEX = 4 
 WRIST_CAM_INDEX = 18
+# 根据 v4l2-ctl 探测结果，Index 12 是 GelSight Mini
+GELSIGHT_CAM_INDEX = 12
 FPS = 30
 EXECUTE_STEPS = 30 # 一次推理执行多少步动作
 SMOOTHING = 0.15
@@ -192,10 +194,18 @@ def run():
     # 3. 初始化摄像头
     cap_base = cv2.VideoCapture(BASE_CAM_INDEX)
     cap_wrist = cv2.VideoCapture(WRIST_CAM_INDEX)
-    for cap in [cap_base, cap_wrist]:
+    cap_gel = cv2.VideoCapture(GELSIGHT_CAM_INDEX)
+    for cap in [cap_base, cap_wrist, cap_gel]:
         cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
         cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+    if (not cap_base.isOpened()) or (not cap_wrist.isOpened()) or (not cap_gel.isOpened()):
+        print("❌ 相机打开失败，请检查 index：")
+        print(f"   BASE_CAM_INDEX={BASE_CAM_INDEX}, opened={cap_base.isOpened()}")
+        print(f"   WRIST_CAM_INDEX={WRIST_CAM_INDEX}, opened={cap_wrist.isOpened()}")
+        print(f"   GELSIGHT_CAM_INDEX={GELSIGHT_CAM_INDEX}, opened={cap_gel.isOpened()}")
+        print("   你可以用一个小脚本遍历 /dev/video* 来确认哪个是 gelsight。")
+        return
 
     logger = TrackingLogger(LOG_DIR)
     kb = KeyboardListener()
@@ -213,19 +223,24 @@ def run():
                 continue
             
             # A. 图像采集
-            for _ in range(2): cap_base.grab(); cap_wrist.grab()
+            for _ in range(2):
+                cap_base.grab(); cap_wrist.grab(); cap_gel.grab()
             ret1, img_b_full = cap_base.retrieve()
             ret2, img_w_full = cap_wrist.retrieve()
-            if not ret1 or not ret2: continue
+            ret3, img_g_full = cap_gel.retrieve()
+            if not ret1 or not ret2 or not ret3:
+                continue
 
             # 使用新定义的 process_image (不裁剪，直接缩放到 256x192)
             img_b_proc = process_image(img_b_full)
             img_w_proc = process_image(img_w_full)
+            img_g_proc = process_image(img_g_full)
             
             # 转为 RGB 并堆叠 [N, H, W, C]
             ge_b = cv2.cvtColor(img_b_proc, cv2.COLOR_BGR2RGB)
             ge_w = cv2.cvtColor(img_w_proc, cv2.COLOR_BGR2RGB)
-            stacked_obs = np.stack([ge_b, ge_w], axis=0)
+            ge_g = cv2.cvtColor(img_g_proc, cv2.COLOR_BGR2RGB)
+            stacked_obs = np.stack([ge_b, ge_w, ge_g], axis=0)
 
             # B. 状态获取
             code, qpos = arm.get_servo_angle(is_radian=True)
@@ -277,17 +292,18 @@ def run():
                 
                 last_target = executed_q
 
-            # 生成 Debug 图 (三栏显示)
+            # 生成 Debug 图 (四栏显示: base / wrist / gelsight / stats)
             pane1 = img_b_proc.copy()
             pane2 = img_w_proc.copy()
-            pane3 = np.zeros((TARGET_H, TARGET_W, 3), dtype=np.uint8)
+            pane3 = img_g_proc.copy()
+            pane4 = np.zeros((TARGET_H, TARGET_W, 3), dtype=np.uint8)
             stats = logger.get_stats()
             if stats:
-                cv2.putText(pane3, f"GE Infer: {infer_duration:.2f}s", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
-                cv2.putText(pane3, f"G-Err Mean: {stats['gripper_mean_error']:.2f}", (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+                cv2.putText(pane4, f"GE Infer: {infer_duration:.2f}s", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
+                cv2.putText(pane4, f"G-Err Mean: {stats['gripper_mean_error']:.2f}", (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
             
             # 顶部预览
-            training_view = np.hstack([pane1, pane2, pane3])
+            training_view = np.hstack([pane1, pane2, pane3, pane4])
             # 底部对齐辅助 (全画幅)
             align_view_res = cv2.resize(img_b_full, (training_view.shape[1], 480))
             debug_img = np.vstack([training_view, align_view_res])
@@ -306,6 +322,7 @@ def run():
         arm.disconnect()
         cap_base.release()
         cap_wrist.release()
+        cap_gel.release()
         print("✅ 程序已退出")
 
 if __name__ == "__main__":

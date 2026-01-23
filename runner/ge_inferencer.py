@@ -7,8 +7,9 @@ import argparse
 import json
 import importlib
 # ----------------------------------------------------
-import matplotlib.pyplot as plt
 import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 from yaml import load, dump, Loader, Dumper
 import numpy as np
 from tqdm import tqdm
