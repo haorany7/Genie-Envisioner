@@ -178,7 +178,7 @@ def get_statistics(
     if not os.path.isdir(data_root):
         raise ValueError(f"data_root must be a directory: {data_root}")
 
-        parquet_files = []
+    parquet_files = []
 
     # Case A: plain LeRobot layout: <data_root>/data/chunk-*/episode_*.parquet
     direct_data_dir = os.path.join(data_root, "data")

@@ -289,6 +289,7 @@ class CustomLeRobotDataset(Dataset):
         self.force_field_ref_nframes = force_field_ref_nframes
         self.force_field_ref_cache_path = force_field_ref_cache_path
         self.gelsight_ref_gray = None
+        self.num_dots = 63  # Default number of markers for GelSight
 
     def get_frame_indexes(self, total_frames, ):
         """
@@ -461,10 +462,44 @@ class CustomLeRobotDataset(Dataset):
             if cached.ndim == 2:
                 return cached.astype(np.uint8)
 
-        raise RuntimeError(
-            f"Missing gelsight ref cache at {self.force_field_ref_cache_path}. "
-            "Run scripts/compute_gelsight_ref_gray.py to generate it."
-        )
+        total_gray = None
+        total_count = 0
+        nframes = max(1, int(self.force_field_ref_nframes))
+
+        for entry in self.dataset:
+            parquet_path = entry[2]
+            data = pd.read_parquet(parquet_path)
+            if "gelsight" not in data.columns:
+                continue
+
+            cam_img_bytes = data["gelsight"].to_list()
+            frame_count = min(nframes, len(cam_img_bytes))
+            for idx in range(frame_count):
+                img = Image.open(io.BytesIO(cam_img_bytes[idx]["bytes"]))
+                img = img.convert("RGB")
+                img_np = np.array(img)
+                gray = img_np[:, :, 1]
+
+                gray_tensor = torch.from_numpy(gray).unsqueeze(0)
+                gray_tensor = self.pixel_transforms_resize(gray_tensor)
+                gray_resized = gray_tensor.squeeze(0).numpy()
+
+                if total_gray is None:
+                    total_gray = gray_resized.astype(np.float64)
+                else:
+                    total_gray += gray_resized.astype(np.float64)
+                total_count += 1
+
+        if total_count == 0:
+            raise RuntimeError(
+                "Failed to compute gelsight ref_gray. "
+                "No gelsight frames found in dataset."
+            )
+
+        ref_gray = (total_gray / total_count).clip(0, 255).astype(np.uint8)
+        os.makedirs(os.path.dirname(self.force_field_ref_cache_path), exist_ok=True)
+        np.save(self.force_field_ref_cache_path, ref_gray)
+        return ref_gray
 
 
     def _get_gelsight_ref_gray(self):
@@ -559,13 +594,14 @@ class CustomLeRobotDataset(Dataset):
         )
 
         # Force Field Extraction (use raw [0,1] images before normalization)
-        tactile_force_field = None
+        T = videos.shape[2]
+        tactile_force_field = torch.zeros((T, self.num_dots * 3))
         if 'gelsight' in self.valid_cam:
             gelsight_idx = self.valid_cam.index('gelsight')
             gelsight_video = videos[:, gelsight_idx]  # c, t, h, w
             ref_gray = self._get_gelsight_ref_gray()
             tactile_force_field = extract_force_field_from_video(
-                gelsight_video.permute(1, 0, 2, 3), ref_gray=ref_gray
+                gelsight_video.permute(1, 0, 2, 3), ref_gray=ref_gray, num_dots=self.num_dots
             )
 
         videos = self.normalize_video(videos, specific_transforms_norm)
