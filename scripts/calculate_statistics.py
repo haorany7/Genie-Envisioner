@@ -32,7 +32,7 @@ def unwrap_angles(data, angle_dims=[3, 4, 5]):
                 data[:, d] = np.unwrap(data[:, d])
     return data
 
-def process_single_file(parquet_path, action_key, state_key, is_calvin_eef, data_type, check_jumps=False, pos_threshold=0.1, ori_threshold=1.0):
+def process_single_file(parquet_path, action_key, state_key, is_calvin_eef, data_type, check_jumps=False, pos_threshold=50.0, ori_threshold=1.0, joint_threshold=1.0):
     """
     Process a single parquet file and return action, delta_action, and state.
     This function is designed to be called in parallel.
@@ -63,35 +63,50 @@ def process_single_file(parquet_path, action_key, state_key, is_calvin_eef, data
         # Check for large jumps if requested
         warnings = []
         if check_jumps and delta_action is not None and len(delta_action) > 0:
-            # Check first 6 dimensions (EEF: pos_x, pos_y, pos_z, roll, pitch, yaw)
             T, C = delta_action.shape
-            if C >= 6:
+            if data_type == "eef":
+                # Check first 6 dimensions (EEF: pos_x, pos_y, pos_z, roll, pitch, yaw)
+                if C >= 6:
+                    for t in range(T):
+                        # Check position (x, y, z) in mm
+                        pos_delta = delta_action[t, :3]
+                        pos_jump = np.linalg.norm(pos_delta)
+                        if pos_jump > pos_threshold:
+                            warnings.append({
+                                "episode": parquet_path,
+                                "timestep": t + 1,  # +1 because delta is between t and t+1
+                                "type": "position",
+                                "jump_magnitude": float(pos_jump),
+                                "threshold": pos_threshold,
+                                "delta": pos_delta.tolist()
+                            })
+                        
+                        # Check orientation (roll, pitch, yaw) in rad
+                        ori_delta = delta_action[t, 3:6]
+                        for i, angle_name in enumerate(['roll', 'pitch', 'yaw']):
+                            angle_jump = abs(ori_delta[i])
+                            if angle_jump > ori_threshold:
+                                warnings.append({
+                                    "episode": parquet_path,
+                                    "timestep": t + 1,
+                                    "type": f"orientation_{angle_name}",
+                                    "jump_magnitude": float(angle_jump),
+                                    "threshold": ori_threshold,
+                                    "delta": float(ori_delta[i])
+                                })
+            else:
+                # Joint space: all dims are in radians (and/or gripper), check per-dim magnitude
                 for t in range(T):
-                    # Check position (x, y, z)
-                    pos_delta = delta_action[t, :3]
-                    pos_jump = np.linalg.norm(pos_delta)
-                    if pos_jump > pos_threshold:
-                        warnings.append({
-                            "episode": parquet_path,
-                            "timestep": t + 1,  # +1 because delta is between t and t+1
-                            "type": "position",
-                            "jump_magnitude": float(pos_jump),
-                            "threshold": pos_threshold,
-                            "delta": pos_delta.tolist()
-                        })
-                    
-                    # Check orientation (roll, pitch, yaw)
-                    ori_delta = delta_action[t, 3:6]
-                    for i, angle_name in enumerate(['roll', 'pitch', 'yaw']):
-                        angle_jump = abs(ori_delta[i])
-                        if angle_jump > ori_threshold:
+                    for i in range(C):
+                        angle_jump = abs(delta_action[t, i])
+                        if angle_jump > joint_threshold:
                             warnings.append({
                                 "episode": parquet_path,
                                 "timestep": t + 1,
-                                "type": f"orientation_{angle_name}",
+                                "type": f"joint_{i}",
                                 "jump_magnitude": float(angle_jump),
-                                "threshold": ori_threshold,
-                                "delta": float(ori_delta[i])
+                                "threshold": joint_threshold,
+                                "delta": float(delta_action[t, i])
                             })
         
         # Load state data
@@ -150,8 +165,9 @@ def get_statistics(
     is_calvin_eef=False,
     num_workers=32,
     check_jumps=True,
-    pos_threshold=0.1,
-    ori_threshold=1.0
+    pos_threshold=50.0,
+    ori_threshold=1.0,
+    joint_threshold=1.0
 ):
     """
     Compute dataset statistics for actions, delta actions, and states.
@@ -168,8 +184,9 @@ def get_statistics(
         is_calvin_eef: If True, apply unwrap to EEF angles and handle state/delta properly
         num_workers: Number of parallel workers for processing files
         check_jumps: If True, check for large jumps in action trajectory
-        pos_threshold: Position jump threshold in meters (default: 0.1m = 10cm)
+        pos_threshold: Position jump threshold in mm (default: 50mm)
         ori_threshold: Orientation jump threshold in radians (default: 1.0 rad ≈ 57°)
+        joint_threshold: Joint jump threshold in radians (default: 1.0 rad)
     """
     
     assert data_type in ["joint", "eef"], f"data_type must be 'joint' or 'eef', got {data_type}"
@@ -178,7 +195,7 @@ def get_statistics(
     if not os.path.isdir(data_root):
         raise ValueError(f"data_root must be a directory: {data_root}")
 
-        parquet_files = []
+    parquet_files = []
 
     # Case A: plain LeRobot layout: <data_root>/data/chunk-*/episode_*.parquet
     direct_data_dir = os.path.join(data_root, "data")
@@ -226,7 +243,8 @@ def get_statistics(
         data_type=data_type,
         check_jumps=check_jumps,
         pos_threshold=pos_threshold,
-        ori_threshold=ori_threshold
+        ori_threshold=ori_threshold,
+        joint_threshold=joint_threshold
     )
     
     # Process files in parallel
@@ -360,8 +378,9 @@ if __name__ == "__main__":
     parser.add_argument('--is_calvin_eef', action='store_true', help="Apply CALVIN EEF specific processing (unwrap angles)")
     parser.add_argument('--num_workers', type=int, default=32, help="Number of parallel workers (default: 32)")
     parser.add_argument('--check_jumps', action='store_true', default=True, help="Check for large jumps in action trajectory")
-    parser.add_argument('--pos_threshold', type=float, default=0.1, help="Position jump threshold in meters (default: 0.1)")
+    parser.add_argument('--pos_threshold', type=float, default=50.0, help="Position jump threshold in mm (default: 50)")
     parser.add_argument('--ori_threshold', type=float, default=1.0, help="Orientation jump threshold in radians (default: 1.0)")
+    parser.add_argument('--joint_threshold', type=float, default=1.0, help="Joint jump threshold in radians (default: 1.0)")
     
     args = parser.parse_args()
     
@@ -378,5 +397,6 @@ if __name__ == "__main__":
         num_workers=args.num_workers,
         check_jumps=args.check_jumps,
         pos_threshold=args.pos_threshold,
-        ori_threshold=args.ori_threshold
+        ori_threshold=args.ori_threshold,
+        joint_threshold=args.joint_threshold
     )

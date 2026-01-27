@@ -1,0 +1,14 @@
+[
+  {
+    "episode": "/work/hdd/behe/WORLD-MODEL-TOUCH/combined_peel_usb_wipe_tcp_lerobot/data/chunk-000/episode_000208.parquet",
+    "timestep": 485,
+    "type": "position",
+    "jump_magnitude": 60.437599182128906,
+    "threshold": 50.0,
+    "delta": [
+      26.606201171875,
+      -35.892608642578125,
+      40.70054626464844
+    ]
+  }
+]

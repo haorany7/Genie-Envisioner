@@ -492,13 +492,18 @@ class CustomLeRobotDataset(Dataset):
         state = (state - state_min) / (state_max - state_min + 1e-6)
         state = state * 2.0 - 1.0
 
-        assert(self.action_type == "absolute")
-
         ### act = norm(act)
         action = action[indexes].astype(np.float32)
         action = torch.FloatTensor(action)
         action = (action - action_min) / (action_max - action_min + 1e-6)
         action = action * 2.0 - 1.0
+
+        if self.action_type == "relative":
+            # relative = norm(action) - norm(state_current)
+            # Align with lerobot_like_dataset.py: use the state at the current frame (n_previous-1)
+            action = action - state[self.n_previous-1:self.n_previous]
+        elif self.action_type != "absolute":
+            raise NotImplementedError(f"Unsupported action_type: {self.action_type}")
 
         ori_act_dim = action.shape[1]
 

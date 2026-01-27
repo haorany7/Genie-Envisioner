@@ -152,7 +152,7 @@ def run():
             domain_name=DOMAIN_NAME,
             num_inference_steps=NUM_INFERENCE_STEPS,
             action_dim=7, # 6关节 + 1夹爪
-            norm_type="meanstd"
+            norm_type="minmax"
         )
         print("✅ GE 模型加载成功")
     except Exception as e:

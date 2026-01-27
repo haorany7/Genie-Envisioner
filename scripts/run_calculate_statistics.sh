@@ -1,9 +1,9 @@
 #!/bin/bash
 
 # Default values
-DATA_ROOT=${1:-"/work/nvme/behe/WORLD-MODEL-TOUCH/task_usb_expert_lerobot"}
-DATA_NAME=${2:-"task_usb_expert"}
-DATA_TYPE=${3:-"joint"}
+DATA_ROOT=${1:-"/work/hdd/behe/WORLD-MODEL-TOUCH/combined_peel_usb_wipe_tcp_lerobot"}
+DATA_NAME=${2:-"combined_peel_usb_wipe_tcp"}
+DATA_TYPE=${3:-"eef"}
 SAVE_DIR="/projects/behe/haorany7/WORLD-MODEL-TOUCH/Reimplementation/Genie-Envisioner/configs/ltx_model/${DATA_NAME}"
 SAVE_PATH="${SAVE_DIR}/${DATA_NAME}_stats.json"
 
