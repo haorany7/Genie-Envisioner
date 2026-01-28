@@ -182,4 +182,3 @@ checkpoints/
 eval_results_*/
 ge_debug.jpg
 ge_inference_logs/
-configs/**/*deployment.yaml
