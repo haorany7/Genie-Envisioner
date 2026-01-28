@@ -176,3 +176,10 @@ output/
 evaluation_results/
 evaluation_results/*
 venv_ge/
+
+# Custom patterns for this workspace
+checkpoints/
+eval_results_*/
+ge_debug.jpg
+ge_inference_logs/
+configs/**/*deployment.yaml
