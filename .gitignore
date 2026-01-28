@@ -175,3 +175,4 @@ logs/
 output/
 evaluation_results/
 evaluation_results/*
+venv_ge/

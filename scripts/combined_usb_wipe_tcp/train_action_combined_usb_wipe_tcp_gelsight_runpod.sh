@@ -10,6 +10,7 @@ echo "GPUs: $SLURM_GPUS_ON_NODE"
 echo "Time: $(date)"
 
 # 环境设置
-source ~/.bashrc || echo "⚠️ Warning: bashrc loading had issues, continuing..."
-conda activate genie_envisioner
+source /workspace/venv_ge/bin/activate
+export HF_HOME=/workspace/tmp/huggingface_cache
+export TMPDIR=/workspace/tmp/pip_tmp
 bash scripts/train.sh main.py configs/ltx_model/combined_usb_wipe_tcp/action_model_combined_usb_wipe_tcp_gelsight_runpod.yaml
