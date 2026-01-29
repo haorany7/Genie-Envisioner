@@ -32,7 +32,7 @@ def unwrap_angles(data, angle_dims=[3, 4, 5]):
                 data[:, d] = np.unwrap(data[:, d])
     return data
 
-def process_single_file(parquet_path, action_key, state_key, is_calvin_eef, data_type, check_jumps=False, pos_threshold=50.0, ori_threshold=1.0, joint_threshold=1.0):
+def process_single_file(parquet_path, action_key, state_key, is_calvin_eef, data_type, check_jumps=False, pos_threshold=50.0, ori_threshold=1.0, joint_threshold=1.0, gripper_threshold=50.0):
     """
     Process a single parquet file and return action, delta_action, and state.
     This function is designed to be called in parallel.
@@ -41,6 +41,7 @@ def process_single_file(parquet_path, action_key, state_key, is_calvin_eef, data
         check_jumps: if True, check for large jumps in action trajectory
         pos_threshold: threshold for position jump (meters, default: 0.1m = 10cm)
         ori_threshold: threshold for orientation jump (radians, default: 1.0 rad ≈ 57°)
+        gripper_threshold: threshold for gripper jump (dataset units)
     
     Returns:
         tuple: (action, delta_action, state, warnings) or None if error
@@ -96,18 +97,31 @@ def process_single_file(parquet_path, action_key, state_key, is_calvin_eef, data
                                 })
             else:
                 # Joint space: all dims are in radians (and/or gripper), check per-dim magnitude
+                # Treat the last dim as gripper for separate warnings.
+                gripper_dim = C - 1
                 for t in range(T):
                     for i in range(C):
                         angle_jump = abs(delta_action[t, i])
-                        if angle_jump > joint_threshold:
-                            warnings.append({
-                                "episode": parquet_path,
-                                "timestep": t + 1,
-                                "type": f"joint_{i}",
-                                "jump_magnitude": float(angle_jump),
-                                "threshold": joint_threshold,
-                                "delta": float(delta_action[t, i])
-                            })
+                        if i == gripper_dim:
+                            if angle_jump > gripper_threshold:
+                                warnings.append({
+                                    "episode": parquet_path,
+                                    "timestep": t + 1,
+                                    "type": "gripper",
+                                    "jump_magnitude": float(angle_jump),
+                                    "threshold": gripper_threshold,
+                                    "delta": float(delta_action[t, i])
+                                })
+                        else:
+                            if angle_jump > joint_threshold:
+                                warnings.append({
+                                    "episode": parquet_path,
+                                    "timestep": t + 1,
+                                    "type": f"joint_{i}",
+                                    "jump_magnitude": float(angle_jump),
+                                    "threshold": joint_threshold,
+                                    "delta": float(delta_action[t, i])
+                                })
         
         # Load state data
         state = load_data(parquet_path, state_key)
@@ -167,7 +181,8 @@ def get_statistics(
     check_jumps=True,
     pos_threshold=50.0,
     ori_threshold=1.0,
-    joint_threshold=1.0
+    joint_threshold=1.0,
+    gripper_threshold=50.0
 ):
     """
     Compute dataset statistics for actions, delta actions, and states.
@@ -187,6 +202,7 @@ def get_statistics(
         pos_threshold: Position jump threshold in mm (default: 50mm)
         ori_threshold: Orientation jump threshold in radians (default: 1.0 rad ≈ 57°)
         joint_threshold: Joint jump threshold in radians (default: 1.0 rad)
+        gripper_threshold: Gripper jump threshold (dataset units)
     """
     
     assert data_type in ["joint", "eef"], f"data_type must be 'joint' or 'eef', got {data_type}"
@@ -244,7 +260,8 @@ def get_statistics(
         check_jumps=check_jumps,
         pos_threshold=pos_threshold,
         ori_threshold=ori_threshold,
-        joint_threshold=joint_threshold
+        joint_threshold=joint_threshold,
+        gripper_threshold=gripper_threshold
     )
     
     # Process files in parallel
@@ -333,6 +350,7 @@ def get_statistics(
         # Group warnings by type
         pos_warnings = [w for w in all_warnings if w['type'] == 'position']
         ori_warnings = [w for w in all_warnings if w['type'].startswith('orientation')]
+        gripper_warnings = [w for w in all_warnings if w['type'] == 'gripper']
         
         if pos_warnings:
             print(f"\n📍 Position jumps (> {pos_threshold}m): {len(pos_warnings)} occurrences")
@@ -349,6 +367,14 @@ def get_statistics(
             for w in sorted_ori:
                 print(f"   - {w['episode']}")
                 print(f"     Timestep {w['timestep']}: {w['type']} = {w['jump_magnitude']:.4f} rad ({np.degrees(w['jump_magnitude']):.1f}°)")
+        
+        if gripper_warnings:
+            print(f"\n🤏 Gripper jumps (> {gripper_threshold}): {len(gripper_warnings)} occurrences")
+            print(f"   Top 5 largest jumps:")
+            sorted_gripper = sorted(gripper_warnings, key=lambda x: x['jump_magnitude'], reverse=True)[:5]
+            for w in sorted_gripper:
+                print(f"   - {w['episode']}")
+                print(f"     Timestep {w['timestep']}: {w['jump_magnitude']:.4f} (delta: {w['delta']})")
         
         # Save warnings to a separate file
         warnings_path = save_path.replace('.json', '_warnings.json')
@@ -381,6 +407,7 @@ if __name__ == "__main__":
     parser.add_argument('--pos_threshold', type=float, default=50.0, help="Position jump threshold in mm (default: 50)")
     parser.add_argument('--ori_threshold', type=float, default=1.0, help="Orientation jump threshold in radians (default: 1.0)")
     parser.add_argument('--joint_threshold', type=float, default=1.0, help="Joint jump threshold in radians (default: 1.0)")
+    parser.add_argument('--gripper_threshold', type=float, default=50.0, help="Gripper jump threshold (dataset units, default: 50)")
     
     args = parser.parse_args()
     
@@ -398,5 +425,6 @@ if __name__ == "__main__":
         check_jumps=args.check_jumps,
         pos_threshold=args.pos_threshold,
         ori_threshold=args.ori_threshold,
-        joint_threshold=args.joint_threshold
+        joint_threshold=args.joint_threshold,
+        gripper_threshold=args.gripper_threshold
     )
