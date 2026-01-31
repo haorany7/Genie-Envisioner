@@ -4,7 +4,7 @@ report_to: None
 tracker_name: ltx_trainer
 
 logging_dir: logs
-output_dir: /workspace/vtam/outputs/task_combined_usb_wipe_tcp_gelsight_enhanced_action
+output_dir: /workspace/vtam/outputs/task_combined_peel_usb_wipe_joint_gelsight_enhanced_action
 pretrained_model_name_or_path: Lightricks/LTX-Video
 
 
@@ -97,7 +97,7 @@ flow_mode_scale: 1.29
 pixel_wise_timestep: True
 
 diffusion_model:
-  model_path: /workspace/vtam/outputs/task_combined_usb_wipe_tcp_gelsight_action/2026_01_27_22_28_20/step_20000/diffusion_pytorch_model.safetensors
+  model_path: /workspace/vtam/outputs/task_combined_peel_usb_wipe_joint_gelsight_action/2026_01_29_09_23_54/step_10000/diffusion_pytorch_model.safetensors
   config:
     activation_fn: gelu-approximate
     attention_bias: true
@@ -126,8 +126,8 @@ diffusion_model:
 
 data:
   train:
-    data_roots: ["/workspace/vtam/data/combined_usb_wipe_tcp_lerobot/"]
-    domains: ["combined_usb_wipe_tcp"]
+    data_roots: ["/workspace/vtam/data/combined_peel_usb_wipe_joint_lerobot/"]
+    domains: ["combined_peel_usb_wipe_joint"]
     sample_size: [192, 256]
     sample_n_frames: 900
     preprocess :  'resize'
@@ -138,16 +138,16 @@ data:
     previous_pick_mode: 'random'
     random_crop: False
     ignore_seek: True
-    action_type: "relative"
-    action_space: "eef"
-    stat_file: configs/ltx_model/combined_usb_wipe_tcp/combined_usb_wipe_tcp_stats.json
+    action_type: "absolute"
+    action_space: "joint"
+    stat_file: configs/ltx_model/combined_peel_usb_wipe_joint/combined_peel_usb_wipe_joint_stats.json
     state_key: state
     action_key: actions
     extra_parquet_index: False
     repeat_dataset: 1000
   val:
-    data_roots: ["/workspace/vtam/data/combined_usb_wipe_tcp_lerobot/"]
-    domains: ["combined_usb_wipe_tcp"]
+    data_roots: ["/workspace/vtam/data/combined_peel_usb_wipe_joint_lerobot/"]
+    domains: ["combined_peel_usb_wipe_joint"]
     sample_size: [192, 256]
     sample_n_frames: 900
     preprocess :  'resize'
@@ -158,9 +158,9 @@ data:
     previous_pick_mode: 'random'
     random_crop: False
     ignore_seek: True
-    action_type: "relative"
-    action_space: "eef"
-    stat_file: configs/ltx_model/combined_usb_wipe_tcp/combined_usb_wipe_tcp_stats.json
+    action_type: "absolute"
+    action_space: "joint"
+    stat_file: configs/ltx_model/combined_peel_usb_wipe_joint/combined_peel_usb_wipe_joint_stats.json
     state_key: state
     action_key: actions
     extra_parquet_index: False
