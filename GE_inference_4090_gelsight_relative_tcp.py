@@ -1,4 +1,5 @@
 import os
+import argparse
 import torch
 import numpy as np
 import time
@@ -20,20 +21,24 @@ from xarm.wrapper import XArmAPI
 from web_infer_utils.MVActor import MVActor
 
 # --- GE 模型配置 ---
-GE_CONFIG = "configs/ltx_model/combined_peel_usb_wipe_joint/action_model_combined_peel_usb_wipe_joint_gelsight_deployment.yaml"
-# 使用 combined_peel_usb_wipe_joint 的权重
-GE_WEIGHTS = "checkpoints/task_combined_peel_usb_wipe_joint_gelsight_action/step_20000/diffusion_pytorch_model.safetensors"
-DOMAIN_NAME = "combined_peel_usb_wipe_joint" # 对应 stats.json 中的前缀
-NUM_INFERENCE_STEPS = 10  # 采样步数，越大越准但越慢
-PROMPT = "wipe the plate"  # 任务描述
-THRESHOLD = 20  # 参考 LIBERO 脚本: 控制 temporal buffer 何时“推进”一次（单位：执行步数累积）
+GE_CONFIG = "configs/ltx_model/combined_usb_wipe_tcp/action_model_combined_usb_wipe_tcp_gelsight_deployment.yaml"
+# 使用最新的 5000 step 权重
+GE_WEIGHTS = "checkpoints/task_combined_usb_wipe_tcp_gelsight_enhanced_action/step_5000/diffusion_pytorch_model.safetensors"
+DOMAIN_NAME = "combined_usb_wipe_tcp" # 对应 stats.json 中的前缀
+NUM_INFERENCE_STEPS = 10  # 采样步数
+DEFAULT_TASKS = [
+    "unplug the USB",
+    "plug in the USB",
+    "wipe the plate",
+]
+THRESHOLD = 20  # 参考 LIBERO 脚本
 
 # --- 机器人与环境配置 ---
 ROBOT_IP = "192.168.1.209"
 BASE_CAM_INDEX = 4 
 THIRD_CAM_INDEX = 10
 # 根据 v4l2-ctl 探测结果，Index 12 是 GelSight Mini
-GELSIGHT_CAM_INDEX = 12
+GELSIGHT_CAM_INDEX = 16
 FPS = 30
 EXECUTE_STEPS = 30 # 一次推理执行多少步动作
 SMOOTHING = 0.15
@@ -45,6 +50,21 @@ TARGET_H, TARGET_W = 192, 256
 def process_image(img):
     """直接缩放到 GE 训练尺寸 (256x192)，不进行裁剪"""
     return cv2.resize(img, (TARGET_W, TARGET_H), interpolation=cv2.INTER_AREA)
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="GE relative TCP inference (head+third+gelsight)")
+    parser.add_argument("--task", type=str, default=None, help="Override task prompt text")
+    parser.add_argument("--task-id", type=int, default=0, help="Index into DEFAULT_TASKS")
+    return parser.parse_args()
+
+
+def get_prompt(task: str | None, task_id: int) -> str:
+    if task:
+        return task
+    if not DEFAULT_TASKS:
+        return "wipe the plate"
+    return DEFAULT_TASKS[task_id % len(DEFAULT_TASKS)]
 
 def draw_force_field(img, ref_dots, force_xy, force_z, scale_xy=2.0, scale_z=500.0):
     """在图像上绘制力场可视化 (箭头表示剪切力，圆圈表示压力)"""
@@ -115,7 +135,7 @@ class KeyboardListener:
             self.thread.join(timeout=0.5)
 
 class TrackingLogger:
-    """记录模型预测和实际执行的跟踪数据"""
+    """记录模型预测和实际执行的跟踪数据 (TCP)"""
     def __init__(self, log_dir: str):
         self.log_dir = log_dir
         os.makedirs(log_dir, exist_ok=True)
@@ -123,19 +143,19 @@ class TrackingLogger:
         self.csv_path = os.path.join(log_dir, f"ge_tracking_{self.timestamp}.csv")
         self.csv_file = open(self.csv_path, 'w', newline='')
         self.csv_writer = csv.writer(self.csv_file)
-        self.csv_writer.writerow(["timestamp", "step", "p_j0", "p_j1", "p_j2", "p_j3", "p_j4", "p_j5", "p_g", "a_j0", "a_j1", "a_j2", "a_j3", "a_j4", "a_j5", "a_g"])
+        self.csv_writer.writerow(["timestamp", "step", "p_x", "p_y", "p_z", "p_rx", "p_ry", "p_rz", "p_g", "a_x", "a_y", "a_z", "a_rx", "a_ry", "a_rz", "a_g"])
         self.gripper_history = deque(maxlen=100)
         self.full_gripper_data = []
-        self.full_joint_data = []
+        self.full_tcp_data = []
         self.full_timestamps = []
         
-    def log(self, timestamp: float, step: int, pred_joints: np.ndarray, pred_gripper: float, actual_joints: np.ndarray, actual_gripper: float):
-        self.csv_writer.writerow([f"{timestamp:.6f}", step, *pred_joints.tolist(), pred_gripper, *actual_joints.tolist(), actual_gripper])
+    def log(self, timestamp: float, step: int, pred_tcp: np.ndarray, pred_gripper: float, actual_tcp: np.ndarray, actual_gripper: float):
+        self.csv_writer.writerow([f"{timestamp:.6f}", step, *pred_tcp.tolist(), pred_gripper, *actual_tcp.tolist(), actual_gripper])
         self.csv_file.flush()
         error = pred_gripper - actual_gripper
         self.gripper_history.append({'pred': pred_gripper, 'actual': actual_gripper, 'error': error, 'error_abs': abs(error)})
         self.full_gripper_data.append({'pred': pred_gripper, 'actual': actual_gripper, 'error': error})
-        self.full_joint_data.append({'pred': pred_joints.copy(), 'actual': actual_joints.copy()})
+        self.full_tcp_data.append({'pred': pred_tcp.copy(), 'actual': actual_tcp.copy()})
         self.full_timestamps.append(timestamp)
     
     def get_stats(self):
@@ -163,9 +183,11 @@ class TrackingLogger:
         plt.close()
         return plot_path
 
-def run():
+def run(args: argparse.Namespace):
     print("🚀 正在启动 GE 推理脚本...")
     os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+    prompt = get_prompt(args.task, args.task_id)
+    print(f"🧠 Task prompt: {prompt}")
 
     # 1. 初始化 GE Actor
     try:
@@ -176,7 +198,7 @@ def run():
             num_inference_steps=NUM_INFERENCE_STEPS,
             threshold=THRESHOLD,
             action_dim=14, # 对应 config 中的 action_in_channels: 14
-            # 参考训练数据预处理（CustomLeRobotDataset 用 q01/q99 做 [-1,1] 归一化）
+            # 训练数据在 CustomLeRobotDataset 内部用 q01/q99 做 minmax 归一化
             norm_type="minmax"
         )
         print("✅ GE 模型加载成功")
@@ -233,8 +255,11 @@ def run():
     kb = KeyboardListener()
     kb.start()
 
-    code, current_qpos = arm.get_servo_angle(is_radian=True)
-    last_target = np.array(current_qpos[:6])
+    code, current_tcp = arm.get_position(is_radian=True)
+    current_tcp = np.array(current_tcp[:6])
+    # 维护角度历史，用 np.unwrap 对齐训练数据处理逻辑
+    angle_history = deque(maxlen=2)
+    angle_history.append(current_tcp[3:].copy())
 
     print("✅ 准备就绪！请观察 ge_debug.jpg")
 
@@ -264,11 +289,15 @@ def run():
             ge_g = cv2.cvtColor(img_g_proc, cv2.COLOR_BGR2RGB)
             stacked_obs = np.stack([ge_b, ge_t, ge_g], axis=0)
 
-            # B. 状态获取
-            code, qpos = arm.get_servo_angle(is_radian=True)
+            # B. 状态获取 (TCP)
+            code, tcp_pos = arm.get_position(is_radian=True)
             _, gpos = arm.get_gripper_position()
             if code != 0 or gpos is None: continue
-            current_state = np.concatenate([qpos[:6], [gpos]])
+            raw_tcp = np.array(tcp_pos[:6])
+            angle_history.append(raw_tcp[3:].copy())
+            unwrapped_angles = np.unwrap(np.array(angle_history), axis=0)[-1]
+            raw_tcp[3:] = unwrapped_angles
+            current_state = np.concatenate([raw_tcp, [gpos]])
             
             # 格式对齐: [action(7), state(7)]
             # 推理输入时，前7维(action)暂且补零，后7维(state)填入当前状态
@@ -279,7 +308,7 @@ def run():
             start_infer = time.time()
             actions = actor.play(
                 obs=stacked_obs,
-                prompt=PROMPT,
+                prompt=prompt,
                 state=padded_state,
                 state_zeropadding=[7, 0], # 告知 MVActor: 前7维补零，后7维是有效 state 统计量
                 ndim_action=14,            # 预测全量 14 维
@@ -291,16 +320,50 @@ def run():
             for i in range(EXECUTE_STEPS):
                 if not kb.running or kb.paused: break
                 
-                target_q = actions[i][:6]
+                # 根据 [action, state] 格式，动作在【前 7 维】
+                target_tcp = actions[i][:6]
                 target_g = actions[i][6]
 
-                # 安全限制与平滑处理
-                if np.any(np.abs(target_q - last_target) > 0.4):
-                    target_q = np.clip(target_q, last_target - 0.1, last_target + 0.1)
-
-                executed_q = (1 - SMOOTHING) * last_target + SMOOTHING * target_q
-                arm.set_servo_angle_j(angles=executed_q, is_radian=True)
+                # 绝对 TCP 执行：用当前读回位姿作为平滑与安全限制的参考
+                code_now, tcp_now = arm.get_position(is_radian=True)
+                if code_now == 0:
+                    raw_now = np.array(tcp_now[:6])
+                    angle_history.append(raw_now[3:].copy())
+                    unwrapped_angles = np.unwrap(np.array(angle_history), axis=0)[-1]
+                    raw_now[3:] = unwrapped_angles
+                    current_tcp = raw_now
                 
+                # 对角度 (roll, pitch, yaw) 进行 unwrap 处理，确保平滑插值走最短路径
+                angle_diff = target_tcp[3:] - current_tcp[3:]
+                angle_diff = (angle_diff + np.pi) % (2 * np.pi) - np.pi
+                target_tcp[3:] = current_tcp[3:] + angle_diff
+
+                if i == 0:
+                    delta_tcp = target_tcp - current_tcp
+                    print(f"🧭 TCP abs target: {target_tcp.tolist()}")
+                    print(f"🧭 TCP current:   {current_tcp.tolist()}")
+                    print(f"🧭 TCP delta:     {delta_tcp.tolist()}")
+                    print(f"🧭 State head(7): {padded_state[:7].tolist()}")
+                    print(f"🧭 State tail(7): {padded_state[7:].tolist()}")
+                    print(f"🧭 Pred Raw Action[:7]: {actions[i][:7].tolist()}")
+
+                # 安全限制与平滑处理
+                if np.any(np.abs(target_tcp[:3] - current_tcp[:3]) > 50.0):
+                    target_tcp[:3] = np.clip(target_tcp[:3], current_tcp[:3] - 10.0, current_tcp[:3] + 10.0)
+                if np.any(np.abs(target_tcp[3:] - current_tcp[3:]) > 0.4):
+                    target_tcp[3:] = np.clip(target_tcp[3:], current_tcp[3:] - 0.1, current_tcp[3:] + 0.1)
+
+                executed_tcp = (1 - SMOOTHING) * current_tcp + SMOOTHING * target_tcp
+                code = arm.set_servo_cartesian(executed_tcp, is_radian=True)
+                
+                # 如果发生错误，尝试自动清理并恢复
+                if code != 0:
+                    arm.clean_error()
+                    arm.clean_gripper_error()
+                    arm.motion_enable(True)
+                    arm.set_mode(1)
+                    arm.set_state(0)
+
                 if i % 3 == 0:
                     arm.clean_gripper_error()
                     arm.set_gripper_position(target_g, wait=False, speed=4000)
@@ -308,14 +371,14 @@ def run():
                 time.sleep(1/FPS)
                 
                 # 记录
-                actual_code, actual_qpos = arm.get_servo_angle(is_radian=True)
+                actual_code, actual_tcp = arm.get_position(is_radian=True)
                 _, actual_gpos = arm.get_gripper_position()
                 if actual_code == 0:
-                    logger.log(time.time(), i, target_q, target_g, np.array(actual_qpos[:6]), actual_gpos)
+                    logger.log(time.time(), i, target_tcp, target_g, np.array(actual_tcp[:6]), actual_gpos)
                 
-                last_target = executed_q
+                current_tcp = executed_tcp
 
-            # 生成 Debug 图 (四栏显示: base / wrist / gelsight / stats)
+            # 生成 Debug 图 (四栏显示: base / third / gelsight / stats)
             pane1 = img_b_proc.copy()
             pane2 = img_t_proc.copy()
             pane3 = img_g_proc.copy() # 直接显示 GelSight 原始图
@@ -349,4 +412,4 @@ def run():
         print("✅ 程序已退出")
 
 if __name__ == "__main__":
-    run()
+    run(parse_args())
