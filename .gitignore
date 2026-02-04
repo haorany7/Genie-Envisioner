@@ -56,8 +56,7 @@ db.sqlite3
 db.sqlite3-journal
 
 # Flask stuff:
-instance/
-.webassets-cache
+# .webassets-cache
 
 # Scrapy stuff:
 .scrapy
@@ -180,5 +179,8 @@ venv_ge/
 # Custom patterns for this workspace
 checkpoints/
 eval_results_*/
+eval_results/
 ge_debug.jpg
+eval_xarm_input.jpg
 ge_inference_logs/
+visualization_results/
