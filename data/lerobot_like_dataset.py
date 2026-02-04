@@ -70,6 +70,7 @@ class CustomLeRobotDataset(Dataset):
         fix_sidx = None,
         fix_mem_idx = None,
         stat_file = None,
+        arm_dim = None,
     
     ):
         """
@@ -107,6 +108,7 @@ class CustomLeRobotDataset(Dataset):
         fix_sidx:                used in validation stage only, set start index to fix_sidx
         fix_mem_idx:             used in validation stage only, set memory indexes to fix_mem_idx
         stat_file:               used to specific statistics
+        arm_dim:                 arm dimension for relative/delta actions (exclude gripper). Required for relative/delta actions.
         """
         
         zero_rank_print(f"loading annotations...")
@@ -120,6 +122,7 @@ class CustomLeRobotDataset(Dataset):
 
         self.action_key = action_key
         self.state_key = state_key
+        self.arm_dim = arm_dim
 
         self.random_crop = random_crop
         
@@ -445,28 +448,48 @@ class CustomLeRobotDataset(Dataset):
             action = (action - action_mean) / action_std
 
         elif self.action_type == "delta":
-            ### delta_act = norm(act_{t} - act_{t-1})
+            ### delta_act = norm(act_{t} - act_{t-1}), but keep gripper absolute
 
             delta_act_meanv, delta_act_stdv = self.get_action_bias_std(domain_name + "_delta")
             action_curr = torch.FloatTensor(action[indexes].astype(np.float32))
             action_last = torch.FloatTensor(action[[_-1 for _ in indexes]].astype(np.float32))
             delta_action = action_curr - action_last
-            ### keep current effector action
-            delta_action[:, 6] = action_last[:, 6]
-            delta_action[:, 13] = action_last[:, 13]
+            arm_dim = self.arm_dim
+            if arm_dim is None:
+                raise ValueError("arm_dim must be set for delta actions (exclude gripper).")
+            action_dim = delta_action.shape[1]
+            if action_dim == 2 * arm_dim + 2:
+                delta_action[:, arm_dim] = action_last[:, arm_dim]
+                delta_action[:, 2 * arm_dim + 1] = action_last[:, 2 * arm_dim + 1]
+            elif action_dim == arm_dim + 1:
+                delta_action[:, arm_dim] = action_last[:, arm_dim]
             delta_action = (delta_action - delta_act_meanv) / delta_act_stdv
             action = delta_action
 
         elif self.action_type == "relative":
-            ### relative_act = norm(act) - norm(state)
+            ### relative_act = norm(act) - norm(state), but keep gripper absolute
 
             action_curr = action[indexes].astype(np.float32)
             action = torch.FloatTensor(action_curr)
             action = (action - action_mean) / action_std
-            rel_action = action - state
-            ### keep current effector action
-            rel_action[:, 6] = action[:, 6]
-            rel_action[:, 13] = action[:, 13]
+            action_dim = action.shape[1]
+            arm_dim = self.arm_dim
+            if arm_dim is None:
+                raise ValueError("arm_dim must be set for relative actions (exclude gripper).")
+            rel_action = action.clone()
+            if action_dim == 2 * arm_dim + 2:
+                # dual arm: [arm, gripper, arm, gripper]
+                rel_action[:, :arm_dim] = action[:, :arm_dim] - state[:, :arm_dim]
+                rel_action[:, arm_dim + 1:2 * arm_dim + 1] = (
+                    action[:, arm_dim + 1:2 * arm_dim + 1]
+                    - state[:, arm_dim + 1:2 * arm_dim + 1]
+                )
+            elif action_dim == arm_dim + 1:
+                # single arm: [arm, gripper]
+                rel_action[:, :arm_dim] = action[:, :arm_dim] - state[:, :arm_dim]
+            else:
+                # fallback to previous behavior if layout is unexpected
+                rel_action = action - state
             action = rel_action
 
         else:

@@ -10,7 +10,7 @@
 #SBATCH --constraint="projects"
 #SBATCH --gpus-per-node=4
 #SBATCH --gpu-bind=closest
-#SBATCH --account=bekg-delta-gpu
+#SBATCH --account=bfxb-delta-gpu
 #SBATCH --exclusive
 #SBATCH --requeue
 #SBATCH -t 48:00:00  # Action Combined Peel USB Wipe Joint Training Time

@@ -8,6 +8,7 @@ echo $config_path
 ckp_path=${3}
 output_path=${4}
 domain_name=${5}
+extra_args=("${@:6}")
 
 echo "Inference on 1 Nodes, 1 GPUs"
 torchrun --nnodes=1 \
@@ -22,5 +23,6 @@ torchrun --nnodes=1 \
     --output_path $output_path \
     --n_validation 100 \
     --n_chunk_action 10 \
-    --domain_name $domain_name
+    --domain_name $domain_name \
+    "${extra_args[@]}"
 

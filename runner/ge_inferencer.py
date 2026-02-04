@@ -194,7 +194,16 @@ class Inferencer:
         )
 
     def validate(
-        self, model_save_dir, global_step, n_view=1, n_chunk_video=1, n_chunk_action=10, n_validation=1, domain_name="agibotworld",
+        self,
+        model_save_dir,
+        global_step,
+        n_view=1,
+        n_chunk_video=1,
+        n_chunk_action=10,
+        n_validation=1,
+        domain_name="agibotworld",
+        random_n_validation=None,
+        episode_ids=None,
     ):
 
         os.makedirs(model_save_dir,exist_ok=True)
@@ -216,9 +225,18 @@ class Inferencer:
             n_chunk_action = 1
 
 
-        for i_validation in range(n_validation):
+        if episode_ids is None:
+            if isinstance(random_n_validation, int):
+                total = len(self.val_dataset)
+                k = min(random_n_validation, total)
+                rng = random.Random(self.args.seed if hasattr(self.args, "seed") else 0)
+                episode_ids = rng.sample(range(total), k)
+            else:
+                episode_ids = list(range(n_validation))
+
+        for i_validation, episode_id in enumerate(episode_ids):
             
-            self.val_dataloader.dataset.fix_epiidx = i_validation
+            self.val_dataloader.dataset.fix_epiidx = episode_id
 
             if self.args.return_action:
                 self.val_dataloader.dataset.fix_sidx = 0
@@ -355,7 +373,16 @@ class Inferencer:
                 plt.clf()
 
 
-    def infer(self, n_chunk_action=4, n_chunk_video=1, n_validation=10, global_step=0, domain_name="agibotworld"):
+    def infer(
+        self,
+        n_chunk_action=4,
+        n_chunk_video=1,
+        n_validation=10,
+        global_step=0,
+        domain_name="agibotworld",
+        random_n_validation=None,
+        episode_ids=None,
+    ):
         model_save_dir = os.path.join(self.save_folder,f'Inference')
         self.validate(
             model_save_dir, global_step,
@@ -364,4 +391,6 @@ class Inferencer:
             n_chunk_action=n_chunk_action,
             n_validation=n_validation,
             domain_name=domain_name,
+            random_n_validation=random_n_validation,
+            episode_ids=episode_ids,
         )

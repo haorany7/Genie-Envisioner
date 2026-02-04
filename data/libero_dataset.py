@@ -75,6 +75,7 @@ class CustomLeRobotDataset(Dataset):
         extra_parquet_index = False,
         valid_act_dim = None,
         valid_sta_dim = None,
+        arm_dim = None,
         repeat_dataset: int = 1,
     ):
         """
@@ -115,6 +116,7 @@ class CustomLeRobotDataset(Dataset):
         extra_parquet_index:     when extra_parquet_index=True, the shape of the action/state arrary saved in .parquet files should be [T,1,C]; when extra_parquet_index=False, the shape of the action/state arrary saved in .parquet files should be [T,C].
         valid_act_dim:           when valid_act_dim is not None, only the first $valid_act_dim dimenssions of actions will be used.
         valid_sta_dim:           when valid_sta_dim is not None, only the first $valid_sta_dim dimenssions of actions will be used.
+        arm_dim:                 arm dimension for relative/delta actions (exclude gripper). Required for relative/delta actions.
         repeat_dataset:          repeat the dataset index list N times (useful when dataset is small and epoch is too short).
 
         """
@@ -133,6 +135,7 @@ class CustomLeRobotDataset(Dataset):
         self.extra_parquet_index = extra_parquet_index
         self.valid_act_dim = valid_act_dim
         self.valid_sta_dim = valid_sta_dim
+        self.arm_dim = arm_dim
 
         self.random_crop = random_crop
         
@@ -498,10 +501,47 @@ class CustomLeRobotDataset(Dataset):
         action = (action - action_min) / (action_max - action_min + 1e-6)
         action = action * 2.0 - 1.0
 
-        if self.action_type == "relative":
-            # relative = norm(action) - norm(state_current)
+        if self.action_type == "delta":
+            # delta_act = norm(act_t - act_{t-1}), but keep gripper absolute
+            delta_min, delta_max = self.get_action_q01_q99(domain_name + "_delta")
+            action_curr = action[indexes].astype(np.float32)
+            action_last = action[[_-1 for _ in indexes]].astype(np.float32)
+            delta_action = torch.FloatTensor(action_curr) - torch.FloatTensor(action_last)
+            arm_dim = self.arm_dim
+            if arm_dim is None:
+                raise ValueError("arm_dim must be set for delta actions (exclude gripper).")
+            action_dim = delta_action.shape[1]
+            if action_dim == 2 * arm_dim + 2:
+                delta_action[:, arm_dim] = torch.FloatTensor(action_last)[:, arm_dim]
+                delta_action[:, 2 * arm_dim + 1] = torch.FloatTensor(action_last)[:, 2 * arm_dim + 1]
+            elif action_dim == arm_dim + 1:
+                delta_action[:, arm_dim] = torch.FloatTensor(action_last)[:, arm_dim]
+            delta_action = (delta_action - delta_min) / (delta_max - delta_min + 1e-6)
+            delta_action = delta_action * 2.0 - 1.0
+            action = delta_action
+        elif self.action_type == "relative":
+            # relative = norm(action) - norm(state_current), but keep gripper absolute
             # Align with lerobot_like_dataset.py: use the state at the current frame (n_previous-1)
-            action = action - state[self.n_previous-1:self.n_previous]
+            state_curr = state[self.n_previous-1:self.n_previous]
+            action_dim = action.shape[1]
+            arm_dim = self.arm_dim
+            if arm_dim is None:
+                raise ValueError("arm_dim must be set for relative actions (exclude gripper).")
+            rel_action = action.clone()
+            if action_dim == 2 * arm_dim + 2:
+                # dual arm: [arm, gripper, arm, gripper]
+                rel_action[:, :arm_dim] = action[:, :arm_dim] - state_curr[:, :arm_dim]
+                rel_action[:, arm_dim + 1:2 * arm_dim + 1] = (
+                    action[:, arm_dim + 1:2 * arm_dim + 1]
+                    - state_curr[:, arm_dim + 1:2 * arm_dim + 1]
+                )
+            elif action_dim == arm_dim + 1:
+                # single arm: [arm, gripper]
+                rel_action[:, :arm_dim] = action[:, :arm_dim] - state_curr[:, :arm_dim]
+            else:
+                # fallback to previous behavior if layout is unexpected
+                rel_action = action - state_curr
+            action = rel_action
         elif self.action_type != "absolute":
             raise NotImplementedError(f"Unsupported action_type: {self.action_type}")
 
