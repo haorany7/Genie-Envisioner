@@ -7,11 +7,6 @@ logging_dir: logs
 output_dir: PATH_TO_SAVE_LOGS_AND_CHECKPOINTS
 pretrained_model_name_or_path: PATH_TO_PRETRAINED_WEIGHTS_OF_VAE_AND_TOKENIZER
 
-###
-train_data_class_path: data/lerobot_like_dataset.py
-train_data_class: CustomLeRobotDataset
-val_data_class_path: data/lerobot_like_dataset.py
-val_data_class: CustomLeRobotDataset
 
 ### 
 tokenizer_class_path: transformers
@@ -29,15 +24,15 @@ pipeline_class_path: models/pipeline/custom_pipeline.py
 pipeline_class: CustomPipeline
 
 # 
-return_action: true
-return_video: false
-train_mode: 'action_full'
+return_action: false
+return_video: true
+train_mode: 'video_only'
 action_loss_scale: 1.0
 
 # total training step is decided by the minimum of the below two
 train_steps: 1000000
 train_epochs: 10000
-steps_to_save: 2000
+steps_to_save: 10000
 steps_to_log: 20
 steps_to_val: 2000
 
@@ -52,12 +47,12 @@ seed: 42
 enable_slicing: True
 enable_tiling: True
 
-add_state: True ### whether add state to the action chunk
+add_state: False
 
-caption_dropout_p: 0.06
+caption_dropout_p: 0.0
 
 # dataloader
-batch_size: 8
+batch_size: 16
 dataloader_num_workers: 8
 pin_memory: True
 
@@ -66,7 +61,7 @@ noise_to_first_frame: 0.1
 
 # Optimizer Config
 optimizer: adamw
-lr: 3e-5
+lr: 3e-4
 beta1: 0.9
 beta2: 0.95
 beta3: 0.999
@@ -92,6 +87,8 @@ flow_logit_mean: 0.0
 flow_logit_std: 1.0
 flow_mode_scale: 1.29
 
+reinit_view_emb: False
+
 pixel_wise_timestep: True
 
 diffusion_model:
@@ -112,47 +109,51 @@ diffusion_model:
     patch_size: 1
     patch_size_t: 1
     qk_norm: rms_norm_across_heads
-    action_expert: true
-    action_in_channels: 14
-    action_num_attention_heads: 16
-    action_attention_head_dim: 32
+    action_expert: false
 
 data:
 ### more details can be found in data/utils/*_dataset.py
   train:
-    data_roots: ["path/to/aidea-world-lerobot"]
-    domains: ["agibotworld", ]
-    sample_size: [192, 256]
-    sample_n_frames: 900
+    data_roots: ["path/to/calvin_lerobot_dataset"]
+    domains: ["calvin", ]
+    sample_size: [256, 256]
+    sample_n_frames: 100
     preprocess :  'resize'
-    valid_cam :  ['observation.images.top_head', 'observation.images.hand_left', 'observation.images.hand_right']
+    valid_cam :  ['observation.images.top', 'observation.images.wrist']
     chunk: 9
     action_chunk: 54
     n_previous: 4
     previous_pick_mode: 'random'
-    random_crop: False
-    dataset_info_cache_path: "path/to/save/dataset_meta_info_cache/train"
-    action_type: "delta"
-    action_space: "joint"
+    random_crop: True
+    action_type: "absolute"
+    action_space: "eef"
+    stat_file: configs/ltx_model/calvin/stats_calvin_rel.json
+    state_key: observation.state
+    action_key: relative_action
+    ignore_seek: False
   val:
-    data_roots: ["path/to/aidea-world-lerobot"]
-    domains: ["agibotworld", ]
-    sample_size: [192, 256]
-    sample_n_frames: 900
+    data_roots: ["path/to/calvin_lerobot_dataset"]
+    domains: ["calvin", ]
+    sample_size: [256, 256]
+    sample_n_frames: 100
     preprocess :  'resize'
-    valid_cam :  ['observation.images.top_head', 'observation.images.hand_left', 'observation.images.hand_right']
+    valid_cam :  ['observation.images.top', 'observation.images.wrist']
     chunk: 9
     action_chunk: 54
     n_previous: 4
     previous_pick_mode: 'random'
     random_crop: False
-    dataset_info_cache_path: "path/to/save/dataset_meta_info_cache/val"
-    action_type: "delta"
-    action_space: "joint"
+    action_type: "absolute"
+    action_space: "eef"
+    stat_file: configs/ltx_model/calvin/stats_calvin_rel.json
+    state_key: observation.state
+    action_key: relative_action
+    ignore_seek: False
+
 
 use_color_jitter: true
-num_inference_step: 5
-noisy_video: true
+num_inference_step: 10
+noisy_video: false
 
 # false for quick debug, for training set True
 load_weights: true

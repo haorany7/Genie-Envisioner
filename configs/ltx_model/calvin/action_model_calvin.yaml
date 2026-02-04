@@ -133,7 +133,6 @@ data:
     action_type: "absolute"
     action_space: "eef"
     stat_file: configs/ltx_model/calvin/stats_calvin_rel.json
-    n_repeat: 5
     state_key: observation.state
     action_key: relative_action
     ignore_seek: True
