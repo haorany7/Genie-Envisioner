@@ -372,6 +372,10 @@ class Inferencer:
                 plt.savefig(f'{self.save_folder}/openloop_evaluation_val{i_validation}.png', dpi=300, bbox_inches='tight')
                 plt.clf()
 
+                # Save predicted/gt actions for replay
+                np.save(f'{self.save_folder}/pred_actions_val{i_validation}.npy', pd_actions_arr_all)
+                np.save(f'{self.save_folder}/gt_actions_val{i_validation}.npy', gt_actions_arr_all)
+
 
     def infer(
         self,

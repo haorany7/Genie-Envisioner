@@ -19,6 +19,8 @@ def main():
     parser.add_argument('--output_path', type=str, default=None, help='Path to save outputs, used in inference stage only')
     parser.add_argument('--domain_name', type=str, default="agibotworld", help='Domain name of the validation dataset, used in inference stage only')
     parser.add_argument('--random_n_validation', type=int, default=None, help='Randomly sample N episodes for inference, used in inference stage only')
+    parser.add_argument('--episode_id', type=int, default=None, help='Infer a single episode id')
+    parser.add_argument('--episode_ids', type=str, default=None, help='Comma-separated episode ids, e.g. 0,5,12')
 
     args = parser.parse_args()
     Runner = import_custom_class(
@@ -46,11 +48,17 @@ def main():
             runner.args.diffusion_model['model_path'] = args.checkpoint_path
         runner.prepare_val_dataset()
         runner.prepare_models()
+        episode_ids = None
+        if args.episode_id is not None:
+            episode_ids = [args.episode_id]
+        elif args.episode_ids:
+            episode_ids = [int(x) for x in args.episode_ids.split(",") if x.strip() != ""]
         runner.infer(
             n_chunk_action=args.n_chunk_action,
             n_validation=args.n_validation,
             domain_name=args.domain_name,
             random_n_validation=args.random_n_validation,
+            episode_ids=episode_ids,
         )
 
     else:

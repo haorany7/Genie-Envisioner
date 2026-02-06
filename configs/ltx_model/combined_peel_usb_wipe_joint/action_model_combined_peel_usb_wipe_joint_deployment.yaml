@@ -126,7 +126,7 @@ diffusion_model:
 
 data:
   train:
-    data_roots: ["/home/yuchenmo/.cache/huggingface/lerobot/combined_peel_usb_wipe_joint_lerobot/"]
+    data_roots: ["/home/yuchenmo/.cache/huggingface/lerobot/validation_task_wipe_wrist_lerobot/"]
     domains: ["combined_peel_usb_wipe_joint"]
     sample_size: [192, 256]
     sample_n_frames: 900
@@ -146,7 +146,7 @@ data:
     extra_parquet_index: False
     repeat_dataset: 1000
   val:
-    data_roots: ["/home/yuchenmo/.cache/huggingface/lerobot/combined_peel_usb_wipe_joint_lerobot/"]
+    data_roots: ["/home/yuchenmo/.cache/huggingface/lerobot/validation_task_wipe_wrist_lerobot/"]
     domains: ["combined_peel_usb_wipe_joint"]
     sample_size: [192, 256]
     sample_n_frames: 900

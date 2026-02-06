@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name="infer_action_combined_peel_usb_wipe_joint"
-#SBATCH --output="/work/hdd/behe/WORLD-MODEL-TOUCH/slurm_outputs/infer_action_combined_peel_usb_wipe_joint/slurm-%j.out"
-#SBATCH --error="/work/hdd/behe/WORLD-MODEL-TOUCH/slurm_outputs/infer_action_combined_peel_usb_wipe_joint/slurm-%j.err"
+#SBATCH --output="/home/yuchenmo/Desktop/VLA/Genie-Envisioner/slurm_outputs/infer_action_combined_peel_usb_wipe_joint/slurm-%j.out"
+#SBATCH --error="/home/yuchenmo/Desktop/VLA/Genie-Envisioner/slurm_outputs/infer_action_combined_peel_usb_wipe_joint/slurm-%j.err"
 #SBATCH --partition=gpuA100x4
 #SBATCH --nodes=1
 #SBATCH --mem=64G
@@ -20,15 +20,15 @@ echo "GPUs: $SLURM_GPUS_ON_NODE"
 echo "Time: $(date)"
 
 # 环境设置
-source ~/.bashrc || echo "⚠️ Warning: bashrc loading had issues, continuing..."
+source ~/miniconda3/etc/profile.d/conda.sh
 conda activate genie_envisioner
-
 # 运行推理
 # 参数说明: scripts/infer.sh <script_path> <config_path> <ckp_path> <output_path> <domain_name>
 bash scripts/infer.sh \
   main.py \
-  configs/ltx_model/combined_peel_usb_wipe_joint/action_model_combined_peel_usb_wipe_joint.yaml \
-  /work/hdd/behe/WORLD-MODEL-TOUCH/outputs/task_combined_peel_usb_wipe_joint_action/2026_02_03_04_24_00/step_20000/diffusion_pytorch_model.safetensors \
-  /work/hdd/behe/WORLD-MODEL-TOUCH/outputs/task_combined_peel_usb_wipe_joint_action/2026_02_03_04_24_00/infer_step_20000 \
+  configs/ltx_model/combined_peel_usb_wipe_joint/action_model_combined_peel_usb_wipe_joint_deployment.yaml \
+  /home/yuchenmo/Desktop/VLA/Genie-Envisioner/checkpoints/task_combined_peel_usb_wipe_joint_action/2026_01_30_22_45_50/step_20000/diffusion_pytorch_model.safetensors \
+  /home/yuchenmo/Desktop/VLA/Genie-Envisioner/eval_results/task_combined_peel_usb_wipe_joint_action/2026_01_30_22_45_50/infer_step_20000 \
   combined_peel_usb_wipe_joint \
-  --random_n_validation 20
+  --random_n_validation 20 \
+  --n_chunk_action 17

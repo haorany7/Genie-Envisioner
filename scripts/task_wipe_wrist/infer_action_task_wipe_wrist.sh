@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name="infer_action_wipe"
-#SBATCH --output="/work/hdd/behe/WORLD-MODEL-TOUCH/slurm_outputs/infer_action_wipe/slurm-%j.out"
-#SBATCH --error="/work/hdd/behe/WORLD-MODEL-TOUCH/slurm_outputs/infer_action_wipe/slurm-%j.err"
+#SBATCH --output="/home/yuchenmo/Desktop/VLA/Genie-Envisioner/slurm_outputs/infer_action_wipe/slurm-%j.out"
+#SBATCH --error="/home/yuchenmo/Desktop/VLA/Genie-Envisioner/slurm_outputs/infer_action_wipe/slurm-%j.err"
 #SBATCH --partition=gpuA100x4
 #SBATCH --nodes=1
 #SBATCH --mem=64G

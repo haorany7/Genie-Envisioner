@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-XArm Diffusion Policy Deployment Script (Improved)
-Key improvements:
-  1) Remove GPU sync in obs.max().cpu() check (performance + stability)
-  2) Replace "any-joint triggers all-joint clip" with wrap-aware per-joint rate limiter
-  3) Optional: update last_target from actual qpos to reduce drift
-  4) Throttle debug image writing to reduce I/O jitter
-  5) Normalize state in numpy float32 and let play() move it to GPU (less dtype/device churn)
+XArm Diffusion Policy Deployment Script (Manual-Trigger Mode)
+
+Flow per cycle:
+  1) Press Enter to trigger
+  2) Capture images from cameras
+  3) Read robot state
+  4) Run model inference
+  5) Execute predicted actions at 30Hz (direct send, no smoothing, identical to replay)
+  6) Wait for next Enter
+
+Image preprocessing uses the exact same torchvision transforms as training.
 """
 
 import os
@@ -15,14 +19,11 @@ import sys
 import argparse
 import time
 import csv
-import threading
-import select
-import termios
-import tty
 
 import cv2
 import numpy as np
 import torch
+import torchvision.transforms as transforms
 from yaml import load, Loader
 from einops import rearrange
 from xarm.wrapper import XArmAPI
@@ -52,50 +53,6 @@ def wrap_to_pi(x: np.ndarray) -> np.ndarray:
     """Wrap angles to [-pi, pi]."""
     return (x + np.pi) % (2 * np.pi) - np.pi
 
-
-class KeyboardListener:
-    """Non-blocking keyboard listener."""
-    def __init__(self):
-        self.paused = False
-        self.running = True
-        self.old_settings = None
-        self.thread = None
-
-    def _get_key(self):
-        if select.select([sys.stdin], [], [], 0)[0]:
-            return sys.stdin.read(1)
-        return None
-
-    def _listen(self):
-        self.old_settings = termios.tcgetattr(sys.stdin)
-        tty.setcbreak(sys.stdin.fileno())
-        try:
-            while self.running:
-                key = self._get_key()
-                if key:
-                    if key == " ":
-                        self.paused = not self.paused
-                        status = "⏸️  已暂停" if self.paused else "▶️  继续运行"
-                        print(f"\n{status} (按空格键切换)")
-                    elif key == "\x03":  # Ctrl+C
-                        self.running = False
-                        break
-                time.sleep(0.01)
-        finally:
-            if self.old_settings:
-                termios.tcsetattr(sys.stdin, termios.TCSADRAIN, self.old_settings)
-
-    def start(self):
-        self.thread = threading.Thread(target=self._listen, daemon=True)
-        self.thread.start()
-        print("⌨️  键盘控制已启用: 空格键暂停/继续 | Ctrl+C 退出")
-
-    def stop(self):
-        self.running = False
-        if self.thread:
-            self.thread.join(timeout=0.5)
-        if self.old_settings:
-            termios.tcsetattr(sys.stdin, termios.TCSADRAIN, self.old_settings)
 
 
 class InferenceXArm:
@@ -127,7 +84,7 @@ class InferenceXArm:
         self.basic_action_dim = 7
         self.add_state = cd.get("add_state", False)
         self.n_prev = cd["data"]["train"]["n_previous"]
-        self.chunk = cd["data"]["train"]["chunk"]
+        self.chunk_raw = cd["data"]["train"]["chunk"]
         self.action_chunk = cd["data"]["train"]["action_chunk"]
 
         # stats (kept both numpy and torch forms)
@@ -159,6 +116,14 @@ class InferenceXArm:
         self.act_max = torch.tensor(act_max_np, device=self.device, dtype=self.dtype)
         self.states_min = torch.tensor(states_min_np, device=self.device, dtype=self.dtype)
         self.states_max = torch.tensor(states_max_np, device=self.device, dtype=self.dtype)
+
+        # Image transforms – identical to training (libero_dataset.py / lerobot_like_dataset.py)
+        self.pixel_transforms_resize = transforms.Compose([
+            transforms.Resize((TARGET_H, TARGET_W)),
+        ])
+        self.pixel_transforms_norm = transforms.Compose([
+            transforms.Normalize(mean=[0.5, 0.5, 0.5], std=[0.5, 0.5, 0.5], inplace=True),
+        ])
 
         self.obs = []
         self.buffer = []
@@ -206,6 +171,9 @@ class InferenceXArm:
                 self.vae.enable_slicing()
             if self.args.enable_tiling:
                 self.vae.enable_tiling()
+        self.SPATIAL_DOWN_RATIO = getattr(self.vae, "spatial_compression_ratio", 1)
+        self.TEMPORAL_DOWN_RATIO = getattr(self.vae, "temporal_compression_ratio", 1)
+        self.chunk = (self.chunk_raw - 1) // self.TEMPORAL_DOWN_RATIO + 1
 
         diffusion_model_class = import_custom_class(
             self.args.diffusion_model_class,
@@ -240,12 +208,17 @@ class InferenceXArm:
         obs: (V,H,W,3) uint8 RGB or (V,3,H,W) float in [-1,1]
         state: numpy or torch; expected already normalized to [-1,1] if add_state is enabled
         """
-        # normalize obs on CPU if uint8
+        # Normalize obs using the exact same pipeline as training:
+        #   1) uint8 → torch float [0,1]
+        #   2) torchvision.transforms.Resize  (bilinear, same as training)
+        #   3) torchvision.transforms.Normalize(0.5, 0.5, 0.5) → [-1,1]
         if isinstance(obs, np.ndarray):
             if obs.dtype == np.uint8:
-                obs = obs.astype(np.float32) / 255.0 * 2.0 - 1.0
-                obs = np.transpose(obs, (0, 3, 1, 2))  # V,C,H,W
-            obs = torch.from_numpy(obs)
+                obs = torch.from_numpy(obs.copy()).permute(0, 3, 1, 2).float() / 255.0  # (V,C,H,W) [0,1]
+                obs = self.pixel_transforms_resize(obs)   # Resize to (TARGET_H, TARGET_W)
+                obs = self.pixel_transforms_norm(obs)      # Normalize to [-1,1]
+            else:
+                obs = torch.from_numpy(obs)
 
         v, c, h, w = obs.shape
         obs = obs.to(self.device, dtype=self.dtype)  # do NOT call obs.max().cpu() (sync)
@@ -364,11 +337,6 @@ def main():
             "relative_delta: actions[i] is delta from previous executed target (integrate)."
         ),
     )
-    parser.add_argument(
-        "--use_actual_last",
-        action="store_true",
-        help="Use actual qpos as last_target each step (reduces drift, slightly more reads).",
-    )
     args = parser.parse_args()
 
     infer = InferenceXArm(
@@ -418,9 +386,6 @@ def main():
         print("❌ GELSIGHT_CAM_INDEX 打开失败")
         return
 
-    kb = KeyboardListener()
-    kb.start()
-
     # log book (CSV)
     log_dir = args.log_dir
     os.makedirs(log_dir, exist_ok=True)
@@ -441,20 +406,18 @@ def main():
          "cmd0", "cmd1", "cmd2", "cmd3", "cmd4", "cmd5", "cmd_g"]
     )
 
-    # initial last_target
-    code, current_qpos = arm.get_servo_angle(is_radian=True)
-    last_target = np.array(current_qpos[:6], dtype=np.float32)
-
     frame_idx = 0
+    print(f"\n🤖 Manual-trigger mode | prompt: \"{args.prompt}\" | exec_step: {args.exec_step} @ {args.fps}Hz")
+    print("   Press Enter to: capture → infer → execute.  Ctrl+C to quit.\n")
 
     try:
-        while kb.running:
-            if kb.paused:
-                time.sleep(0.1)
-                continue
+        while True:
+            # ── Wait for keyboard trigger ──
+            input(f">>> [Cycle {frame_idx}] Press Enter to run next inference cycle...")
 
-            # grab latest frames
-            for _ in range(2):
+            # ── 1. Capture images ──
+            # flush camera buffers
+            for _ in range(5):
                 cap_base.grab()
                 if cap_third is not None:
                     cap_third.grab()
@@ -463,6 +426,7 @@ def main():
 
             ret_b, img_b_full = cap_base.retrieve()
             if not ret_b:
+                print("⚠️  base camera read failed, retry")
                 continue
 
             img_t_full = None
@@ -470,81 +434,59 @@ def main():
             if cap_third is not None:
                 ret_t, img_t_full = cap_third.retrieve()
                 if not ret_t:
+                    print("⚠️  third camera read failed, retry")
                     continue
             if cap_gel is not None:
                 ret_g, img_g_full = cap_gel.retrieve()
                 if not ret_g:
+                    print("⚠️  gelsight camera read failed, retry")
                     continue
 
-            # preprocess images
-            img_b_proc = process_image(img_b_full)
-            ge_b = cv2.cvtColor(img_b_proc, cv2.COLOR_BGR2RGB)
-
+            # Model input: raw RGB (play() handles resize + normalize with training transforms)
+            ge_b = cv2.cvtColor(img_b_full, cv2.COLOR_BGR2RGB)
             views = [ge_b]
-            img_t_proc = None
-            img_g_proc = None
             if img_t_full is not None:
-                img_t_proc = process_image(img_t_full)
-                ge_t = cv2.cvtColor(img_t_proc, cv2.COLOR_BGR2RGB)
+                ge_t = cv2.cvtColor(img_t_full, cv2.COLOR_BGR2RGB)
                 views.append(ge_t)
             if img_g_full is not None:
-                img_g_proc = process_image(img_g_full)
-                ge_g = cv2.cvtColor(img_g_proc, cv2.COLOR_BGR2RGB)
+                ge_g = cv2.cvtColor(img_g_full, cv2.COLOR_BGR2RGB)
                 views.append(ge_g)
 
             stacked_obs = np.stack(views, axis=0)  # V,H,W,3 uint8 RGB
 
-            # read robot state
+            # ── 2. Read robot state ──
             code, qpos = arm.get_servo_angle(is_radian=True)
             _, gpos = arm.get_gripper_position()
             if code != 0 or gpos is None:
+                print("⚠️  robot state read failed, retry")
                 continue
 
-            # --- debug mosaic (throttled) ---
-            if args.debug_every > 0 and (frame_idx % args.debug_every == 0):
-                pane1 = img_b_proc.copy()
-                pane2 = img_t_proc.copy() if img_t_proc is not None else np.zeros_like(img_b_proc)
-                pane3 = img_g_proc.copy() if img_g_proc is not None else np.zeros_like(img_b_proc)
+            # Save debug mosaic
+            img_b_proc = process_image(img_b_full)
+            img_t_proc = process_image(img_t_full) if img_t_full is not None else None
+            img_g_proc = process_image(img_g_full) if img_g_full is not None else None
+            pane1 = img_b_proc.copy()
+            pane2 = img_t_proc.copy() if img_t_proc is not None else np.zeros_like(img_b_proc)
+            pane3 = img_g_proc.copy() if img_g_proc is not None else np.zeros_like(img_b_proc)
+            cv2.putText(pane3, f"Prompt: {args.prompt}", (10, 25),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1)
+            debug_img = np.hstack([pane1, pane2, pane3])
+            cv2.imwrite("eval_xarm_input.jpg", debug_img)
 
-                y_offset = 25
-                line_height = 20
-                cv2.putText(
-                    pane3, f"Prompt: {args.prompt}", (10, y_offset),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 255), 1
-                )
-                y_offset += line_height
-                cv2.putText(
-                    pane3, "Qpos (deg):", (10, y_offset),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1
-                )
-                y_offset += 15
-                for j_idx, val in enumerate(qpos[:6]):
-                    deg = np.rad2deg(val)
-                    cv2.putText(
-                        pane3, f" J{j_idx+1}: {deg:.1f}", (10, y_offset),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1
-                    )
-                    y_offset += 15
-                cv2.putText(
-                    pane3, f" Gpos: {gpos:.1f}", (10, y_offset),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.4, (200, 200, 200), 1
-                )
+            print(f"   State: qpos={[f'{q:.3f}' for q in qpos[:6]]}, gpos={gpos:.1f}")
 
-                debug_img = np.hstack([pane1, pane2, pane3])
-                cv2.imwrite("eval_xarm_input.jpg", debug_img)
-
-            frame_idx += 1
-
-            # --- build normalized state (numpy float32) ---
-            current_state = np.concatenate([np.array(qpos[:6], dtype=np.float32), np.array([gpos], dtype=np.float32)], axis=0)[None, :]  # (1,7)
+            # ── 3. Build normalized state (same as training) ──
+            current_state = np.concatenate(
+                [np.array(qpos[:6], dtype=np.float32), np.array([gpos], dtype=np.float32)], axis=0
+            )[None, :]  # (1,7)
             state_norm = (current_state - infer.states_min_np) / (infer.states_max_np - infer.states_min_np + 1e-6)
             state_norm = state_norm * 2.0 - 1.0
+            state_in = np.concatenate(
+                [np.zeros_like(state_norm), state_norm], axis=1
+            ).astype(np.float32)  # (1,14)
 
-            # NOTE: This (1,14) concatenation MUST match your training definition.
-            # Keep it as in your original script; if assertion fails, the training expects a different state format.
-            state_in = np.concatenate([np.zeros_like(state_norm), state_norm], axis=1).astype(np.float32)  # (1,14)
-
-            # inference (returns CPU tensor)
+            # ── 4. Inference ──
+            t_infer_start = time.time()
             actions_norm_last, actions_norm_full = infer.play(
                 stacked_obs,
                 args.prompt,
@@ -553,132 +495,84 @@ def main():
                 return_normalized=True,
                 return_full=True,
             )
+            t_infer = time.time() - t_infer_start
             actions_norm_last = actions_norm_last.numpy()
             actions_norm_full = actions_norm_full.numpy()
 
+            # Split and denormalize
             pred_action_norm = actions_norm_full[:, :7]
             pred_state_norm = actions_norm_full[:, 7:]
-            pred_action_abs = (pred_action_norm + 1.0) / 2.0
-            pred_action_abs = pred_action_abs * (infer.act_max_np - infer.act_min_np + 1e-6) + infer.act_min_np
-            pred_state_abs = (pred_state_norm + 1.0) / 2.0
-            pred_state_abs = pred_state_abs * (infer.states_max_np - infer.states_min_np + 1e-6) + infer.states_min_np
+            pred_action_abs = (pred_action_norm + 1.0) / 2.0 * (infer.act_max_np - infer.act_min_np + 1e-6) + infer.act_min_np
+            pred_state_abs = (pred_state_norm + 1.0) / 2.0 * (infer.states_max_np - infer.states_min_np + 1e-6) + infer.states_min_np
 
             if args.action_type == "absolute":
-                # Execute with the last 7 dims (treated as absolute state prediction).
                 actions = pred_state_abs
-            else:
-                actions_norm = pred_action_norm
-                # relative modes: predicted actions are in normalized space
-                if args.action_type == "relative_base":
-                    action_norm = actions_norm.copy()
-                    # Relative for arm dims; gripper stays absolute in normalized space.
-                    action_norm[:, :6] = action_norm[:, :6] + state_norm[:, :6]
-                    actions = (action_norm + 1.0) / 2.0
-                    actions = actions * (infer.act_max_np - infer.act_min_np + 1e-6) + infer.act_min_np
-                else:  # relative_delta
-                    integrated_norm = state_norm.copy()
-                    actions = np.zeros_like(actions_norm, dtype=np.float32)
-                    for i in range(actions_norm.shape[0]):
-                        integrated_norm[:, :6] = integrated_norm[:, :6] + actions_norm[i:i+1, :6]
-                        integrated_norm[:, 6:] = actions_norm[i:i+1, 6:]
-                        action_norm = integrated_norm
-                        action_real = (action_norm + 1.0) / 2.0
-                        action_real = action_real * (infer.act_max_np - infer.act_min_np + 1e-6) + infer.act_min_np
-                        actions[i] = action_real[0]
+            elif args.action_type == "relative_base":
+                action_norm = pred_action_norm.copy()
+                action_norm[:, :6] = action_norm[:, :6] + state_norm[:, :6]
+                actions = (action_norm + 1.0) / 2.0 * (infer.act_max_np - infer.act_min_np + 1e-6) + infer.act_min_np
+            else:  # relative_delta
+                integrated_norm = state_norm.copy()
+                actions = np.zeros_like(pred_action_norm, dtype=np.float32)
+                for k in range(pred_action_norm.shape[0]):
+                    integrated_norm[:, :6] = integrated_norm[:, :6] + pred_action_norm[k:k+1, :6]
+                    integrated_norm[:, 6:] = pred_action_norm[k:k+1, 6:]
+                    actions[k] = ((integrated_norm + 1.0) / 2.0 * (infer.act_max_np - infer.act_min_np + 1e-6) + infer.act_min_np)[0]
 
-            if args.debug_action_every > 0 and (frame_idx % args.debug_action_every == 0):
-                if args.action_type == "absolute":
-                    print(
-                        f"[DEBUG] state_norm={state_norm[0]}, "
-                        f"pred_action_abs[0]={pred_action_abs[0]}, "
-                        f"pred_state_abs[0]={pred_state_abs[0]}"
-                    )
-                else:
-                    print(
-                        f"[DEBUG] state_norm={state_norm[0]}, "
-                        f"action_norm_pred[0]={actions_norm[0]}, "
-                        f"action_abs[0]={actions[0]}, "
-                        f"pred_state_abs[0]={pred_state_abs[0]}"
-                    )
+            print(f"   Inference done in {t_infer:.2f}s | actions shape: {actions.shape}")
+            print(f"   First action:  {actions[0]}")
+            print(f"   Last action:   {actions[min(args.exec_step-1, actions.shape[0]-1)]}")
 
-            # 1Hz log: current state + full predicted horizon (e.g., 54 steps)
+            # ── 5. Log predictions ──
             now_ts = time.time()
             for step_idx in range(pred_action_abs.shape[0]):
-                pred_writer.writerow(
-                    [
-                        now_ts,
-                        frame_idx,
-                        step_idx,
-                        args.action_type,
-                        qpos[0], qpos[1], qpos[2], qpos[3], qpos[4], qpos[5],
-                        gpos,
-                        pred_action_abs[step_idx][0], pred_action_abs[step_idx][1], pred_action_abs[step_idx][2],
-                        pred_action_abs[step_idx][3], pred_action_abs[step_idx][4], pred_action_abs[step_idx][5],
-                        pred_action_abs[step_idx][6],
-                        pred_state_abs[step_idx][0], pred_state_abs[step_idx][1], pred_state_abs[step_idx][2],
-                        pred_state_abs[step_idx][3], pred_state_abs[step_idx][4], pred_state_abs[step_idx][5],
-                        pred_state_abs[step_idx][6],
-                    ]
-                )
+                pred_writer.writerow([
+                    now_ts, frame_idx, step_idx, args.action_type,
+                    *qpos[:6], gpos,
+                    *pred_action_abs[step_idx].tolist(),
+                    *pred_state_abs[step_idx].tolist(),
+                ])
             pred_log_f.flush()
 
-            # execute horizon
+            # ── 6. Execute actions (identical to replay_xarm_episode.py) ──
+            n_exec = min(args.exec_step, actions.shape[0])
+            print(f"   Executing {n_exec} steps @ {args.fps}Hz ...")
+            for i in range(n_exec):
+                step_start = time.time()
 
-            for i in range(args.exec_step):
-                if not kb.running or kb.paused:
-                    break
-
-                step_start_time = time.time()
-
-                # optionally refresh last_target from actual robot state (reduces drift)
-                if args.use_actual_last:
-                    code_a, qpos_a = arm.get_servo_angle(is_radian=True)
-                    if code_a == 0:
-                        last_target = np.array(qpos_a[:6], dtype=np.float32)
-
-                # decode action type (already absolute in physical space)
                 target_q = actions[i][:6].astype(np.float32)
-
                 target_g = float(actions[i][6])
 
-                # light smoothing (EMA)
-                executed_q = (1.0 - args.smoothing) * last_target + args.smoothing * target_q
+                # Direct send – no smoothing (identical to replay)
+                arm.set_servo_angle_j(angles=target_q.tolist(), is_radian=True)
 
-                # send joint command
-                arm.set_servo_angle_j(angles=executed_q.tolist(), is_radian=True)
-
-                # gripper at ~10Hz
                 if i % 3 == 0:
                     arm.clean_gripper_error()
                     arm.set_gripper_position(target_g, wait=False, speed=4000)
 
-                # 30Hz log: current state + command
+                # 30Hz log
                 code_s, qpos_s = arm.get_servo_angle(is_radian=True)
                 _, gpos_s = arm.get_gripper_position()
                 if code_s == 0 and gpos_s is not None:
-                    state_writer.writerow(
-                        [
-                            time.time(),
-                            frame_idx,
-                            i,
-                            qpos_s[0], qpos_s[1], qpos_s[2], qpos_s[3], qpos_s[4], qpos_s[5],
-                            gpos_s,
-                            executed_q[0], executed_q[1], executed_q[2], executed_q[3], executed_q[4], executed_q[5],
-                            target_g,
-                        ]
-                    )
+                    state_writer.writerow([
+                        time.time(), frame_idx, i,
+                        *np.array(qpos_s[:6]).tolist(), gpos_s,
+                        *target_q.tolist(), target_g,
+                    ])
                     state_log_f.flush()
 
-                # keep 30Hz
-                elapsed = time.time() - step_start_time
+                # Keep 30Hz
+                elapsed = time.time() - step_start
                 sleep_t = max(0.0, 1.0 / args.fps - elapsed)
                 if sleep_t > 0:
                     time.sleep(sleep_t)
 
-                last_target = executed_q.astype(np.float32)
+            print(f"   ✅ Cycle {frame_idx} done.\n")
+            frame_idx += 1
 
+    except KeyboardInterrupt:
+        print("\n🛑 Stopped by user.")
     finally:
-        kb.stop()
         arm.disconnect()
         pred_log_f.close()
         state_log_f.close()
