@@ -7,7 +7,7 @@ conda activate genie_envisioner
 # Usage:
 #   bash experiments/eval_xarm.sh [PROMPT_ID] [VARIANT]
 #   - PROMPT_ID: 0 wipe | 1 peel (default) | 2 plug | 3 unplug
-#   - VARIANT:   no_state (default) | state
+#   - VARIANT:   no_state (default) | state | wipe_clean
 
 VARIANT="${2:-no_state}"
 
@@ -16,16 +16,19 @@ if [[ "${VARIANT}" == "no_state" ]]; then
   CKPT_PATH="/home/yuchenmo/Desktop/VLA/Genie-Envisioner/checkpoints/task_combined_peel_usb_wipe_joint_action_no_state_xinzhuo/2026_02_04_11_18_06/step_10000/diffusion_pytorch_model.safetensors"
 elif [[ "${VARIANT}" == "state" ]]; then
   CONFIG_FILE="configs/ltx_model/combined_peel_usb_wipe_joint/action_model_combined_peel_usb_wipe_joint_deployment.yaml"
-  CKPT_PATH="/home/yuchenmo/Desktop/VLA/Genie-Envisioner/checkpoints/task_combined_peel_usb_wipe_joint_action/2026_01_30_22_45_50/step_20000/diffusion_pytorch_model.safetensors"
+  CKPT_PATH="/home/yuchenmo/Desktop/VLA/Genie-Envisioner/checkpoints/task_combined_peel_usb_wipe_joint_action/2026_02_06_12_06_59/step_10000/diffusion_pytorch_model.safetensors"
+elif [[ "${VARIANT}" == "wipe_clean" ]]; then
+  CONFIG_FILE="/home/yuchenmo/Desktop/VLA/VTAM/configs/ltx_model/task_wipe_clean/action_model_task_wipe_clean_action_full_deployment.yaml"
+  CKPT_PATH="/home/yuchenmo/Desktop/VLA/Genie-Envisioner/checkpoints/task_wipe_clean_action_full/2026_02_10_05_19_00/step_10000/diffusion_pytorch_model.safetensors"
 else
-  echo "Unknown VARIANT='${VARIANT}'. Use: no_state | state"
+  echo "Unknown VARIANT='${VARIANT}'. Use: no_state | state | wipe_clean"
   exit 2
 fi
 DEVICE="cuda:0"
 
 # Prompt dictionary (select via PROMPT_ID)
 declare -A PROMPTS=(
-  [0]="wipe the plate"
+  [0]="wipe the plate until clean"
   [1]="peel the cucumber"
   [2]="plug in the USB"
   [3]="unplug the USB"
