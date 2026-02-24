@@ -184,4 +184,5 @@ ge_debug.jpg
 eval_xarm_input.jpg
 ge_inference_logs/
 visualization_results/
+eval_logs/force_live.csv
 eval_logs/
