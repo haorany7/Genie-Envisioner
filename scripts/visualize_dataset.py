@@ -113,42 +113,101 @@ def process_single_episode(parquet_path, output_dir, fps, task_map):
     state = extract_array(df['state'])
     n_action = actions.shape[1]
     n_state = state.shape[1]
-    is_identical = n_action == n_state and np.array_equal(actions, state)
-    status_str = "(IDENTICAL)" if is_identical else "(DIFFERENT)"
 
-    n_dims = max(n_action, n_state)
-    rows = (n_dims + 1) // 2
-    fig, axes = plt.subplots(rows, 2, figsize=(15, 5 * rows))
-    if n_dims == 1:
-        axes = np.array([axes])
-    axes = axes.flatten()
+    # Named labels for action (7D) and state (19D)
+    ACTION_LABELS = [
+        "Joint 1 (rad)", "Joint 2 (rad)", "Joint 3 (rad)",
+        "Joint 4 (rad)", "Joint 5 (rad)", "Joint 6 (rad)",
+        "Gripper (mm)",
+    ]
+    STATE_LABELS = [
+        "Joint 1 (rad)", "Joint 2 (rad)", "Joint 3 (rad)",
+        "Joint 4 (rad)", "Joint 5 (rad)", "Joint 6 (rad)",
+        "Gripper Width (mm)",
+        "TCP X (m)", "TCP Y (m)", "TCP Z (m)",
+        "Rot 6D [0]", "Rot 6D [1]", "Rot 6D [2]",
+        "Rot 6D [3]", "Rot 6D [4]", "Rot 6D [5]",
+        "Force X", "Force Y", "Force Z",
+    ]
+
+    def _get_label(labels, idx):
+        return labels[idx] if idx < len(labels) else f"Dim {idx}"
 
     cam_info = " | ".join([f"{cam}: {len(df)}" for cam in image_cols])
-    fig.suptitle(f"Trajectory Check: {ep_id} {status_str} (Total Frames: {len(df)})\nCameras: {cam_info}\nInstruction: {instruction}\nBlue: Action (GT) | Red Dash: State (Input)", fontsize=16)
 
-    for i in range(n_dims):
-        ax = axes[i]
-        if i < n_action:
-            ax.plot(actions[:, i], label='Action', color='blue', alpha=0.8, linewidth=2.5)
-        if i < n_state:
-            ax.plot(state[:, i], label='State', color='red', linestyle='--', alpha=0.8, linewidth=1.5)
-        ax.set_title(f"Dimension {i}" + (" (state only)" if i >= n_action else ""))
-        ax.legend()
+    # ---- Plot 1: Actions (7D) ----
+    action_rows = (n_action + 1) // 2
+    fig_a, axes_a = plt.subplots(action_rows, 2, figsize=(16, 3.5 * action_rows))
+    if n_action == 1:
+        axes_a = np.array([axes_a])
+    axes_a = axes_a.flatten()
+
+    fig_a.suptitle(
+        f"Actions — {ep_id}  ({n_action}D, {len(df)} frames)\n"
+        f"Instruction: {instruction}",
+        fontsize=14, fontweight='bold',
+    )
+
+    for i in range(n_action):
+        ax = axes_a[i]
+        ax.plot(actions[:, i], color='#1f77b4', linewidth=2)
+        ax.set_title(_get_label(ACTION_LABELS, i), fontsize=11)
+        ax.set_xlabel("Frame")
         ax.grid(True, linestyle=':', alpha=0.6)
-
-        arr = actions[:, i] if i < n_action else state[:, i]
-        diff = np.abs(np.diff(arr))
+        diff = np.abs(np.diff(actions[:, i]))
         if len(diff) > 0 and np.max(diff) > 1.0:
-            ax.set_facecolor('#ffeeee')
+            ax.set_facecolor('#fff3f3')
+    for j in range(n_action, len(axes_a)):
+        axes_a[j].axis('off')
 
-    for j in range(n_dims, len(axes)):
-        axes[j].axis('off')
-
-    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
-    plot_path = os.path.join(output_dir, f"{ep_id}_comparison.png")
-    plt.savefig(plot_path)
+    plt.tight_layout(rect=[0, 0.02, 1, 0.93])
+    action_path = os.path.join(output_dir, f"{ep_id}_actions.png")
+    plt.savefig(action_path, dpi=120)
     plt.close()
-    print(f"  Comparison plot saved: {plot_path}")
+    print(f"  Action plot saved: {action_path}")
+
+    # ---- Plot 2: Full State (19D) ----
+    state_rows = (n_state + 1) // 2
+    fig_s, axes_s = plt.subplots(state_rows, 2, figsize=(16, 3.5 * state_rows))
+    if n_state == 1:
+        axes_s = np.array([axes_s])
+    axes_s = axes_s.flatten()
+
+    fig_s.suptitle(
+        f"State — {ep_id}  ({n_state}D, {len(df)} frames)\n"
+        f"Instruction: {instruction}\n"
+        f"Cameras: {cam_info}",
+        fontsize=14, fontweight='bold',
+    )
+
+    # Group coloring
+    state_colors = (
+        ['#d62728'] * 6 +   # joints  (red family)
+        ['#2ca02c'] +        # gripper width (green)
+        ['#ff7f0e'] * 3 +   # tcp xyz (orange)
+        ['#9467bd'] * 6 +   # rot 6d  (purple)
+        ['#17becf'] * 3     # forces  (cyan)
+    )
+
+    for i in range(n_state):
+        ax = axes_s[i]
+        color = state_colors[i] if i < len(state_colors) else '#333333'
+        ax.plot(state[:, i], color=color, linewidth=2)
+        # Overlay action on matching dims (first 7)
+        if i < n_action:
+            ax.plot(actions[:, i], color='#1f77b4', linewidth=1.2, linestyle='--', alpha=0.5, label='action')
+            ax.legend(fontsize=8, loc='upper right')
+        ax.set_title(_get_label(STATE_LABELS, i), fontsize=11)
+        ax.set_xlabel("Frame")
+        ax.grid(True, linestyle=':', alpha=0.6)
+    for j in range(n_state, len(axes_s)):
+        axes_s[j].axis('off')
+
+    plt.tight_layout(rect=[0, 0.02, 1, 0.92])
+    state_path = os.path.join(output_dir, f"{ep_id}_state.png")
+    plt.savefig(state_path, dpi=120)
+    plt.close()
+    print(f"  State plot saved: {state_path}")
 
 def main():
     parser = argparse.ArgumentParser()

@@ -110,10 +110,13 @@ class ActionTransformerBlock(nn.Module):
             **(attention_args[1]),
         )
 
-        self.norm3 = RMSNorm(dim, eps=eps, elementwise_affine=elementwise_affine)
-        self.attn3 = attention_class(
-            **(attention_args[2]),
-        )
+        self.has_attn3 = len(attention_args) > 2
+        if self.has_attn3:
+            self.norm3 = RMSNorm(dim, eps=eps, elementwise_affine=elementwise_affine)
+            self.tactile_norm = nn.LayerNorm(cross_attention_dim, eps=eps)
+            self.attn3 = attention_class(
+                **(attention_args[2]),
+            )
 
         self.ff = FeedForward(dim, activation_fn=activation_fn)
 
@@ -164,10 +167,10 @@ class ActionTransformerBlock(nn.Module):
         )
         hidden_states = hidden_states + attn_hidden_states
 
-        if attn3_hidden_states is not None:
+        if attn3_hidden_states is not None and self.has_attn3:
             attn_hidden_states = self.attn3(
                 self.norm3(hidden_states),
-                encoder_hidden_states=attn3_hidden_states,
+                encoder_hidden_states=self.tactile_norm(attn3_hidden_states),
                 image_rotary_emb=None,
                 attention_mask=None,
                 n_view=1,
@@ -252,7 +255,10 @@ def add_action_expert(
         qk_norm=qk_norm,
         processor=attention_processor,
     ))
-    attention_args.append(dict(
+
+    tactile_enhanced = kwargs.get("tactile_enhanced", False)
+    if tactile_enhanced:
+        attention_args.append(dict(
         query_dim=self.action_inner_dim,
         heads=action_num_attention_heads,
         kv_heads=action_num_attention_heads,

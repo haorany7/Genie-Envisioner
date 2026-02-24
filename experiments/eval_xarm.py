@@ -27,6 +27,7 @@ import torchvision.transforms as transforms
 from yaml import load, Loader
 from einops import rearrange
 from xarm.wrapper import XArmAPI
+from scipy.spatial.transform import Rotation
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
@@ -41,7 +42,83 @@ from utils.data_utils import get_text_conditions
 
 
 TARGET_H, TARGET_W = 192, 256
-INITIAL_GRIPPER_POS = 300
+
+
+def euler_to_rotation_6d(rx: float, ry: float, rz: float) -> np.ndarray:
+    """Euler angles (xyz convention, radians) -> 6D continuous rotation."""
+    R = Rotation.from_euler("xyz", [rx, ry, rz]).as_matrix()  # 3x3
+    return R[:, :2].T.flatten().astype(np.float32)  # (6,)
+INITIAL_GRIPPER_POS = 800
+FIXED_GRIPPER_POS = None  # Force gripper to this width (set None to use model prediction)
+
+# ---------------------------------------------------------------------------
+# GelSight optical-flow force estimation (real-time)
+# ---------------------------------------------------------------------------
+
+FORCE_BASELINE_N = 10  # first N frames averaged as no-contact reference
+
+
+def _extract_marker_mask(gray: np.ndarray, thresh: int = 70) -> np.ndarray:
+    """Extract dark-marker binary mask from GelSight grayscale image."""
+    _, mask = cv2.threshold(gray, thresh, 255, cv2.THRESH_BINARY_INV)
+    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    return cv2.morphologyEx(mask, cv2.MORPH_OPEN, kernel)
+
+
+def _compute_flow_forces(
+    ref_gray: np.ndarray, cur_gray: np.ndarray, marker_mask: np.ndarray | None = None
+) -> tuple[float, float, float]:
+    """Return (fx, fy, fz) from Farneback optical flow between ref and cur."""
+    ref_blur = cv2.GaussianBlur(ref_gray, (5, 5), 1.0)
+    cur_blur = cv2.GaussianBlur(cur_gray, (5, 5), 1.0)
+    flow = cv2.calcOpticalFlowFarneback(
+        ref_blur, cur_blur, None,
+        pyr_scale=0.5, levels=5, winsize=21,
+        iterations=5, poly_n=7, poly_sigma=1.5, flags=0,
+    )
+    mask_bool = marker_mask > 0 if marker_mask is not None else np.ones(ref_gray.shape, dtype=bool)
+    dx, dy = flow[:, :, 0], flow[:, :, 1]
+    fx = float(np.mean(dx[mask_bool]))
+    fy = float(np.mean(dy[mask_bool]))
+    # fz ≈ divergence of smoothed flow field
+    dx_s = cv2.GaussianBlur(dx, (7, 7), 2.0)
+    dy_s = cv2.GaussianBlur(dy, (7, 7), 2.0)
+    fz = float(np.mean((np.gradient(dx_s, axis=1) + np.gradient(dy_s, axis=0))[mask_bool]))
+    return fx, fy, fz
+
+
+class GelSightForceEstimator:
+    """Maintains a no-contact reference and computes real-time force from new frames."""
+
+    def __init__(self, baseline_n: int = FORCE_BASELINE_N):
+        self.baseline_n = baseline_n
+        self.ref_gray: np.ndarray | None = None
+        self.marker_mask: np.ndarray | None = None
+        self._baseline_accum: list[np.ndarray] = []
+        self._ready = False
+
+    def _to_gray(self, img_bgr: np.ndarray) -> np.ndarray:
+        """Convert BGR image to grayscale, resize to a fixed size for consistency."""
+        gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+        gray = cv2.resize(gray, (320, 240))
+        return gray
+
+    def update(self, img_bgr: np.ndarray) -> tuple[float, float, float]:
+        """Feed a new GelSight BGR frame, return (fx, fy, fz).
+
+        During the first `baseline_n` calls the frame is accumulated
+        as the no-contact reference and (0, 0, 0) is returned.
+        """
+        gray = self._to_gray(img_bgr)
+        if not self._ready:
+            self._baseline_accum.append(gray.astype(np.float32))
+            if len(self._baseline_accum) >= self.baseline_n:
+                self.ref_gray = np.mean(self._baseline_accum, axis=0).astype(np.uint8)
+                self.marker_mask = _extract_marker_mask(self.ref_gray)
+                self._ready = True
+                print(f"   🔬 GelSight force baseline captured ({self.baseline_n} frames)")
+            return 0.0, 0.0, 0.0
+        return _compute_flow_forces(self.ref_gray, gray, self.marker_mask)
 
 
 def process_image(img):
@@ -406,6 +483,19 @@ def main():
          "cmd0", "cmd1", "cmd2", "cmd3", "cmd4", "cmd5", "cmd_g"]
     )
 
+    # Initialize GelSight force estimator (only used when state_dim == 19)
+    state_dim = infer.states_min_np.shape[1]
+    gel_force_est = None
+    if state_dim == 19 and cap_gel is not None:
+        gel_force_est = GelSightForceEstimator(baseline_n=FORCE_BASELINE_N)
+        print(f"🔬 Capturing GelSight force baseline ({FORCE_BASELINE_N} frames, keep sensor unloaded)...")
+        for _ in range(FORCE_BASELINE_N + 5):
+            cap_gel.grab()
+            ret_bl, img_bl = cap_gel.retrieve()
+            if ret_bl:
+                gel_force_est.update(img_bl)
+            time.sleep(0.05)
+
     frame_idx = 0
     print(f"\n🤖 Manual-trigger mode | prompt: \"{args.prompt}\" | exec_step: {args.exec_step} @ {args.fps}Hz")
     print("   Press Enter to: capture → infer → execute.  Ctrl+C to quit.\n")
@@ -444,12 +534,17 @@ def main():
 
             # Model input: raw RGB (play() handles resize + normalize with training transforms)
             ge_b = cv2.cvtColor(img_b_full, cv2.COLOR_BGR2RGB)
+            target_h, target_w = ge_b.shape[:2]
             views = [ge_b]
             if img_t_full is not None:
                 ge_t = cv2.cvtColor(img_t_full, cv2.COLOR_BGR2RGB)
+                if ge_t.shape[:2] != (target_h, target_w):
+                    ge_t = cv2.resize(ge_t, (target_w, target_h))
                 views.append(ge_t)
             if img_g_full is not None:
                 ge_g = cv2.cvtColor(img_g_full, cv2.COLOR_BGR2RGB)
+                if ge_g.shape[:2] != (target_h, target_w):
+                    ge_g = cv2.resize(ge_g, (target_w, target_h))
                 views.append(ge_g)
 
             stacked_obs = np.stack(views, axis=0)  # V,H,W,3 uint8 RGB
@@ -476,14 +571,44 @@ def main():
             print(f"   State: qpos={[f'{q:.3f}' for q in qpos[:6]]}, gpos={gpos:.1f}")
 
             # ── 3. Build normalized state (same as training) ──
-            current_state = np.concatenate(
-                [np.array(qpos[:6], dtype=np.float32), np.array([gpos], dtype=np.float32)], axis=0
-            )[None, :]  # (1,7)
+            state_dim = infer.states_min_np.shape[1]
+            if state_dim == 19:
+                # 19D: joint(6) + gripper(1) + tcp_xyz(3) + rot6d(6) + force(3)
+                # Read TCP: get_position returns [x_mm, y_mm, z_mm, rx, ry, rz]
+                tcp_code, tcp_raw = arm.get_position(is_radian=True)
+                if tcp_code != 0:
+                    print("⚠️  TCP read failed, retry")
+                    continue
+                tcp_xyz = np.array(tcp_raw[:3], dtype=np.float32)  # mm
+                rot_6d = euler_to_rotation_6d(tcp_raw[3], tcp_raw[4], tcp_raw[5])  # (6,)
+                # Force: compute from GelSight optical flow
+                if gel_force_est is not None and img_g_full is not None:
+                    fx, fy, fz = gel_force_est.update(img_g_full)
+                    force_xyz = np.array([fx, fy, fz], dtype=np.float32)
+                else:
+                    force_xyz = np.zeros(3, dtype=np.float32)
+                current_state = np.concatenate([
+                    np.array(qpos[:6], dtype=np.float32),  # 6D joint
+                    np.array([gpos], dtype=np.float32),    # 1D gripper
+                    tcp_xyz,                                # 3D TCP position
+                    rot_6d,                                 # 6D rotation
+                    force_xyz,                              # 3D force
+                ], axis=0)[None, :]  # (1,19)
+                print(f"   TCP: xyz=[{tcp_xyz[0]:.1f}, {tcp_xyz[1]:.1f}, {tcp_xyz[2]:.1f}]mm"
+                      f"  Force: [{force_xyz[0]:.4f}, {force_xyz[1]:.4f}, {force_xyz[2]:.6f}]")
+            else:
+                # 7D: joint(6) + gripper(1)
+                current_state = np.concatenate(
+                    [np.array(qpos[:6], dtype=np.float32), np.array([gpos], dtype=np.float32)], axis=0
+                )[None, :]  # (1,7)
+
             state_norm = (current_state - infer.states_min_np) / (infer.states_max_np - infer.states_min_np + 1e-6)
             state_norm = state_norm * 2.0 - 1.0
+            # action_dim = basic_action_dim(7) + state_dim; zeros pad the action part
+            action_zeros = np.zeros((1, infer.basic_action_dim), dtype=np.float32)
             state_in = np.concatenate(
-                [np.zeros_like(state_norm), state_norm], axis=1
-            ).astype(np.float32)  # (1,14)
+                [action_zeros, state_norm], axis=1
+            ).astype(np.float32)  # (1, 7+state_dim) = (1, action_dim)
 
             # ── 4. Inference ──
             t_infer_start = time.time()
@@ -541,7 +666,7 @@ def main():
                 step_start = time.time()
 
                 target_q = actions[i][:6].astype(np.float32)
-                target_g = float(actions[i][6])
+                target_g = float(FIXED_GRIPPER_POS) if FIXED_GRIPPER_POS is not None else float(actions[i][6])
 
                 # Direct send – no smoothing (identical to replay)
                 arm.set_servo_angle_j(angles=target_q.tolist(), is_radian=True)
