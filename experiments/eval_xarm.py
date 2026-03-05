@@ -158,7 +158,6 @@ class InferenceXArm:
         self.action_dim = cd["diffusion_model"]["config"].get(
             "action_out_channels", cd["diffusion_model"]["config"]["action_in_channels"]
         )
-        self.basic_action_dim = 7
         self.add_state = cd.get("add_state", False)
         self.n_prev = cd["data"]["train"]["n_previous"]
         self.chunk_raw = cd["data"]["train"]["chunk"]
@@ -187,6 +186,12 @@ class InferenceXArm:
         self.act_max_np = act_max_np
         self.states_min_np = states_min_np
         self.states_max_np = states_max_np
+
+        # basic_action_dim: read directly from action stats
+        # e.g. 7 (chip_reguralized: joint6+gripper1), 10 (force_in_action: joint6+gripper1+force3)
+        self.basic_action_dim = act_min_np.shape[1]
+        state_dim = states_min_np.shape[1]
+        print(f"   action_dim={self.action_dim}, state_dim={state_dim}, basic_action_dim={self.basic_action_dim}")
 
         # torch (move to device once)
         self.act_min = torch.tensor(act_min_np, device=self.device, dtype=self.dtype)
@@ -361,8 +366,8 @@ class InferenceXArm:
         )[0]
 
         actions_pred_full = pred_all["action"].detach()[0]  # (action_chunk, action_dim) on device
-        # Use the last 7 dims as action (absolute) output.
-        actions_pred = actions_pred_full[:, -self.basic_action_dim:]
+        # Use the first basic_action_dim dims as action output (7 for normal, 10 for force_in_action).
+        actions_pred = actions_pred_full[:, :self.basic_action_dim]
 
         if return_normalized:
             self.action_buffer = actions_pred.clone()
@@ -396,6 +401,8 @@ def main():
     parser.add_argument("--gelsight_cam_index", type=int, default=12)
     parser.add_argument("--use_third", action="store_true", help="Use third view camera")
     parser.add_argument("--use_gelsight", action="store_true", help="Use gelsight camera")
+    parser.add_argument("--gelsight_force_only", action="store_true",
+                        help="Open gelsight camera for force extraction only; do NOT feed its image to the model as a view")
 
     parser.add_argument("--fps", type=int, default=30)
     parser.add_argument("--smoothing", type=float, default=0.15)
@@ -414,7 +421,13 @@ def main():
             "relative_delta: actions[i] is delta from previous executed target (integrate)."
         ),
     )
+    parser.add_argument("--initial_gripper_pos", type=int, default=None,
+                        help="Initial gripper width (overrides INITIAL_GRIPPER_POS constant)")
     args = parser.parse_args()
+
+    if args.initial_gripper_pos is not None:
+        global INITIAL_GRIPPER_POS
+        INITIAL_GRIPPER_POS = args.initial_gripper_pos
 
     infer = InferenceXArm(
         config_file=args.config_file,
@@ -541,7 +554,7 @@ def main():
                 if ge_t.shape[:2] != (target_h, target_w):
                     ge_t = cv2.resize(ge_t, (target_w, target_h))
                 views.append(ge_t)
-            if img_g_full is not None:
+            if img_g_full is not None and not args.gelsight_force_only:
                 ge_g = cv2.cvtColor(img_g_full, cv2.COLOR_BGR2RGB)
                 if ge_g.shape[:2] != (target_h, target_w):
                     ge_g = cv2.resize(ge_g, (target_w, target_h))
@@ -574,7 +587,6 @@ def main():
             state_dim = infer.states_min_np.shape[1]
             if state_dim == 19:
                 # 19D: joint(6) + gripper(1) + tcp_xyz(3) + rot6d(6) + force(3)
-                # Read TCP: get_position returns [x_mm, y_mm, z_mm, rx, ry, rz]
                 tcp_code, tcp_raw = arm.get_position(is_radian=True)
                 if tcp_code != 0:
                     print("⚠️  TCP read failed, retry")
@@ -596,11 +608,26 @@ def main():
                 ], axis=0)[None, :]  # (1,19)
                 print(f"   TCP: xyz=[{tcp_xyz[0]:.1f}, {tcp_xyz[1]:.1f}, {tcp_xyz[2]:.1f}]mm"
                       f"  Force: [{force_xyz[0]:.4f}, {force_xyz[1]:.4f}, {force_xyz[2]:.6f}]")
+            elif state_dim == 16:
+                # 16D: joint(6) + gripper(1) + tcp_xyz(3) + rot6d(6) — NO force in state
+                tcp_code, tcp_raw = arm.get_position(is_radian=True)
+                if tcp_code != 0:
+                    print("⚠️  TCP read failed, retry")
+                    continue
+                tcp_xyz = np.array(tcp_raw[:3], dtype=np.float32)  # mm
+                rot_6d = euler_to_rotation_6d(tcp_raw[3], tcp_raw[4], tcp_raw[5])  # (6,)
+                current_state = np.concatenate([
+                    np.array(qpos[:6], dtype=np.float32),  # 6D joint
+                    np.array([gpos], dtype=np.float32),    # 1D gripper
+                    tcp_xyz,                                # 3D TCP position
+                    rot_6d,                                 # 6D rotation
+                ], axis=0)[None, :]  # (1,16)
+                print(f"   TCP: xyz=[{tcp_xyz[0]:.1f}, {tcp_xyz[1]:.1f}, {tcp_xyz[2]:.1f}]mm (no force in state)")
             else:
                 # 7D: joint(6) + gripper(1)
                 current_state = np.concatenate(
-                    [np.array(qpos[:6], dtype=np.float32), np.array([gpos], dtype=np.float32)], axis=0
-                )[None, :]  # (1,7)
+                [np.array(qpos[:6], dtype=np.float32), np.array([gpos], dtype=np.float32)], axis=0
+            )[None, :]  # (1,7)
 
             state_norm = (current_state - infer.states_min_np) / (infer.states_max_np - infer.states_min_np + 1e-6)
             state_norm = state_norm * 2.0 - 1.0
@@ -624,9 +651,10 @@ def main():
             actions_norm_last = actions_norm_last.numpy()
             actions_norm_full = actions_norm_full.numpy()
 
-            # Split and denormalize
-            pred_action_norm = actions_norm_full[:, :7]
-            pred_state_norm = actions_norm_full[:, 7:]
+            # Split and denormalize (basic_action_dim = 7 for normal, 10 for force_in_action)
+            bad = infer.basic_action_dim
+            pred_action_norm = actions_norm_full[:, :bad]
+            pred_state_norm = actions_norm_full[:, bad:]
             pred_action_abs = (pred_action_norm + 1.0) / 2.0 * (infer.act_max_np - infer.act_min_np + 1e-6) + infer.act_min_np
             pred_state_abs = (pred_state_norm + 1.0) / 2.0 * (infer.states_max_np - infer.states_min_np + 1e-6) + infer.states_min_np
 
